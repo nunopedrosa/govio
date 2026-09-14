@@ -70,3 +70,9 @@ No new server dependency is introduced by the fast path. The existing self-hoste
 ## v2.3 deployment note
 
 v2.3 changes only application/configuration files. Existing self-hosted Mediabunny assets can be retained. After `git pull` or uploading the new build, reload Safari so Service Worker cache `vio-converter-v8-encoder-presets` replaces the older cache.
+
+## v2.4 deployment note
+
+v2.4 changes the Service Worker cache name. After `git pull`, reload the site on iPhone. If Safari continues to show an older UI, close/reopen the PWA or clear the site's cached website data during development.
+
+No new server-side dependency is required; the existing self-hosted Mediabunny 1.56.2 assets are reused.

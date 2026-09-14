@@ -3,6 +3,7 @@
 const CONFIG = window.VIO_CONFIG ?? {};
 const PROFILE = CONFIG.conversion ?? {};
 const XOR_KEY = CONFIG.xorKey ?? 0xA7;
+const PRESETS = PROFILE.presets ?? {};
 
 const els = {
   compatibility: document.querySelector('#compatibility'),
@@ -29,11 +30,11 @@ let selectedFile = null;
 let selectedMeta = null;
 let sourceInput = null;
 let currentConversion = null;
+let currentOutput = null;
+let cancelRequested = false;
 let resultFile = null;
 let resultUrl = null;
 let capabilitiesReady = false;
-const PRESETS = PROFILE.presets ?? { compatible: { label: 'Compatible', width: 1920, height: 1080, video_bitrate: 1984000, gop_seconds: 1.2, description: 'Validated profile.' } };
-
 
 for (const n of (CONFIG.slots ?? Array.from({ length: 15 }, (_, i) => String(i + 1).padStart(3, '0')))) {
   const option = document.createElement('option');
@@ -41,7 +42,6 @@ for (const n of (CONFIG.slots ?? Array.from({ length: 15 }, (_, i) => String(i +
   option.textContent = `${n}.vio`;
   els.slot.append(option);
 }
-
 
 for (const [key, preset] of Object.entries(PRESETS)) {
   const option = document.createElement('option');
@@ -51,12 +51,15 @@ for (const [key, preset] of Object.entries(PRESETS)) {
 }
 
 function selectedPreset() {
-  return PRESETS[els.preset.value] ?? PRESETS.compatible ?? Object.values(PRESETS)[0];
+  return PRESETS[els.preset.value] ?? PRESETS.control ?? Object.values(PRESETS)[0];
 }
 
 function updatePresetInfo() {
   const p = selectedPreset();
-  els.presetInfo.textContent = `${p.description ?? ''} ${p.width}×${p.height}, ${(p.video_bitrate / 1000000).toFixed(2)} Mb/s, GOP ${p.gop_seconds.toFixed(1)} s.`.trim();
+  const target = p.kind === 'remux'
+    ? 'Original resolution, profile, frame rate and bitrate are preserved.'
+    : `${p.width}×${p.height}, ${(p.video_bitrate / 1000000).toFixed(2)} Mb/s, ${PROFILE.fps ?? 25} fps, GOP ${p.gop_seconds.toFixed(1)} s.`;
+  els.presetInfo.textContent = `${p.description ?? ''} ${target}`.trim();
   try { localStorage.setItem('vio.lastPreset', els.preset.value); } catch (_) {}
 }
 
@@ -71,7 +74,6 @@ try {
   const savedSlot = localStorage.getItem('vio.lastSlot');
   if (savedSlot && [...els.slot.options].some(o => o.value === savedSlot)) els.slot.value = savedSlot;
 } catch (_) {}
-
 els.slot.addEventListener('change', () => {
   try { localStorage.setItem('vio.lastSlot', els.slot.value); } catch (_) {}
 });
@@ -80,7 +82,7 @@ function log(message) {
   const stamp = new Date().toLocaleTimeString();
   const line = `[${stamp}] ${String(message)}`;
   const lines = (els.log.textContent + line + '\n').split('\n');
-  if (lines.length > 250) lines.splice(0, lines.length - 250);
+  if (lines.length > 300) lines.splice(0, lines.length - 300);
   els.log.textContent = lines.join('\n');
   els.log.scrollTop = els.log.scrollHeight;
 }
@@ -129,7 +131,6 @@ async function checkCapabilities() {
     return;
   }
   capabilityRow('Mediabunny', true, `Self-hosted v${CONFIG.mediabunny?.version ?? 'unknown'}`);
-
   if (!hasWebCodecs) {
     setStage('This browser does not provide the required WebCodecs APIs.');
     return;
@@ -142,12 +143,11 @@ async function checkCapabilities() {
     if (!aac && window.MediabunnyAacEncoder?.registerAacEncoder) {
       window.MediabunnyAacEncoder.registerAacEncoder();
       aac = await mb.canEncodeAudio('aac');
-      log('Native AAC encoder unavailable; registered the small bundled AAC fallback encoder.');
+      log('Native AAC encoder unavailable; registered bundled AAC fallback encoder.');
     }
-    capabilityRow('H.264/AVC encoder', avc, 'Required when video transcoding is needed');
-    capabilityRow('AAC encoder', aac, 'Required when audio transcoding is needed');
+    capabilityRow('H.264/AVC encoder', avc, 'Required for Control and Realtime tests');
+    capabilityRow('AAC encoder', aac, 'Needed only when source audio cannot be copied');
     capabilitiesReady = Boolean(avc && aac);
-    if (!capabilitiesReady) setStage('This device cannot encode the required AVC/AAC profile.');
   } catch (err) {
     log(`Capability check failed: ${err.message}`);
     setStage(`Capability check failed: ${err.message}`);
@@ -169,7 +169,6 @@ async function checkCapabilities() {
 async function inspectSelectedFile(file) {
   const mb = getMb();
   sourceInput?.dispose?.();
-
   sourceInput = new mb.Input({
     formats: mb.ALL_FORMATS,
     source: new mb.BlobSource(file, { maxCacheSize: 2 * 1024 * 1024 })
@@ -178,7 +177,7 @@ async function inspectSelectedFile(file) {
   const videoTrack = await sourceInput.getPrimaryVideoTrack();
   if (!videoTrack) throw new Error('No video track was found in this file.');
   const audioTrack = await sourceInput.getPrimaryAudioTrack();
-  if (!audioTrack) throw new Error('No audio track was found. This prototype requires audio to match the validated device profile.');
+  if (!audioTrack) throw new Error('No audio track was found.');
 
   const [videoCodec, videoCodecString, audioCodec, width, height, channels, sampleRate, duration] = await Promise.all([
     videoTrack.getCodec(),
@@ -190,7 +189,6 @@ async function inspectSelectedFile(file) {
     audioTrack.getSampleRate(),
     videoTrack.getDurationFromMetadata().catch(() => null)
   ]);
-
   return { videoCodec, videoCodecString, audioCodec, width, height, channels, sampleRate, duration };
 }
 
@@ -205,7 +203,6 @@ els.input.addEventListener('change', async () => {
   els.convert.disabled = true;
   els.resultCard.classList.add('hidden');
   setStage('Reading video metadata…', 0);
-
   els.preview.pause?.();
   els.preview.removeAttribute('src');
   els.preview.load?.();
@@ -216,7 +213,7 @@ els.input.addEventListener('change', async () => {
     const elapsed = (performance.now() - started) / 1000;
     const durationText = Number.isFinite(selectedMeta.duration) ? ` · ${selectedMeta.duration.toFixed(1)} s` : '';
     els.sourceInfo.innerHTML = `<strong>${file.name}</strong><br>${humanBytes(file.size)}${durationText} · ${selectedMeta.width}×${selectedMeta.height} · video ${selectedMeta.videoCodec}${selectedMeta.videoCodecString ? ` (${selectedMeta.videoCodecString})` : ''} · audio ${selectedMeta.audioCodec}, ${selectedMeta.sampleRate} Hz, ${selectedMeta.channels} ch`;
-    log(`Source metadata ready in ${elapsed.toFixed(2)} s: ${selectedMeta.videoCodec} video + ${selectedMeta.audioCodec} audio.`);
+    log(`Source metadata ready in ${elapsed.toFixed(2)} s: ${selectedMeta.width}x${selectedMeta.height} ${selectedMeta.videoCodec}${selectedMeta.videoCodecString ? ` ${selectedMeta.videoCodecString}` : ''}; ${selectedMeta.audioCodec} ${selectedMeta.sampleRate} Hz ${selectedMeta.channels} ch.`);
     els.convert.disabled = !capabilitiesReady;
     setStage(capabilitiesReady ? 'Ready to convert.' : 'Source metadata is readable, but required output codecs are unavailable.', 0);
   } catch (err) {
@@ -236,146 +233,196 @@ function isMainProfileAtMostLevel40(codecString) {
   return profile === 0x4d && level <= 0x28;
 }
 
-async function chooseConversionPlan() {
+async function getTrackPlan() {
   const videoTrack = await sourceInput.getPrimaryVideoTrack();
   const audioTrack = await sourceInput.getPrimaryAudioTrack();
-  if (!videoTrack || !audioTrack) throw new Error('Primary video/audio tracks are no longer available. Please reselect the file.');
-
-  setStage('Checking for fast-path compatibility…', 1);
+  if (!videoTrack || !audioTrack) throw new Error('Primary video/audio tracks are unavailable. Please reselect the file.');
   const [videoCodec, codecString, width, height, audioCodec, sampleRate, channels] = await Promise.all([
-    videoTrack.getCodec(),
-    videoTrack.getCodecParameterString?.() ?? Promise.resolve(null),
-    videoTrack.getDisplayWidth(),
-    videoTrack.getDisplayHeight(),
-    audioTrack.getCodec(),
-    audioTrack.getSampleRate(),
-    audioTrack.getNumberOfChannels()
+    videoTrack.getCodec(), videoTrack.getCodecParameterString?.() ?? Promise.resolve(null),
+    videoTrack.getDisplayWidth(), videoTrack.getDisplayHeight(), audioTrack.getCodec(),
+    audioTrack.getSampleRate(), audioTrack.getNumberOfChannels()
   ]);
-
-  const compatiblePreset = PRESETS.compatible ?? selectedPreset();
-  let fps = null;
-  if (videoCodec === 'avc' && width === compatiblePreset.width && height === compatiblePreset.height) {
-    // This reads only a small packet sample and is intentionally deferred until Convert.
-    const metrics = await videoTrack.computeFrameRateMetrics({ targetPacketCount: 64 });
-    fps = metrics.bestGuessFrameRate;
-  }
-
-  const videoCopy = videoCodec === 'avc' &&
-    width === compatiblePreset.width &&
-    height === compatiblePreset.height &&
-    Number.isFinite(fps) && Math.abs(fps - (PROFILE.fps ?? 25)) <= 0.05 &&
-    isMainProfileAtMostLevel40(codecString);
-
-  const audioCopy = audioCodec === 'aac' &&
-    sampleRate === (PROFILE.audio_rate ?? 48000) &&
-    channels === (PROFILE.audio_channels ?? 2);
-
-  return { videoCopy, audioCopy, fps, codecString, videoCodec, audioCodec };
+  const audioCopy = audioCodec === 'aac' && sampleRate === (PROFILE.audio_rate ?? 48000) && channels === (PROFILE.audio_channels ?? 2);
+  return { videoTrack, audioTrack, videoCodec, codecString, width, height, audioCodec, sampleRate, channels, audioCopy };
 }
 
-function transcodeVideoOptions(preset) {
+function controlVideoOptions() {
+  const p = PRESETS.control;
   return {
-    codec: 'avc',
-    width: preset.width,
-    height: preset.height,
-    fit: 'contain',
-    frameRate: PROFILE.fps ?? 25,
-    bitrate: preset.video_bitrate,
-    keyFrameInterval: preset.gop_seconds,
-    hardwareAcceleration: 'prefer-hardware',
-    forceTranscode: true
+    codec: 'avc', width: p.width, height: p.height, fit: 'contain', frameRate: PROFILE.fps ?? 25,
+    bitrate: p.video_bitrate, keyFrameInterval: p.gop_seconds,
+    hardwareAcceleration: 'prefer-hardware', forceTranscode: true
   };
 }
-
 function transcodeAudioOptions() {
   return {
-    codec: 'aac',
-    bitrate: PROFILE.audio_bitrate ?? 128000,
-    sampleRate: PROFILE.audio_rate ?? 48000,
-    numberOfChannels: PROFILE.audio_channels ?? 2,
+    codec: 'aac', bitrate: PROFILE.audio_bitrate ?? 128000,
+    sampleRate: PROFILE.audio_rate ?? 48000, numberOfChannels: PROFILE.audio_channels ?? 2,
     forceTranscode: true
   };
+}
+
+function makeOutput(mb) {
+  const target = new mb.BufferTarget();
+  const output = new mb.Output({
+    format: new mb.Mp4OutputFormat({ fastStart: 'in-memory', metadataFormat: 'auto' }),
+    target
+  });
+  return { target, output };
+}
+
+async function runStandardConversion(mb, preset, plan, target, output, startedAt) {
+  const isRemux = preset.kind === 'remux';
+  if (isRemux && (plan.videoCodec !== 'avc' || plan.audioCodec !== 'aac')) {
+    throw new Error('Test A requires an H.264/AVC video track and AAC audio so both tracks can be copied unchanged.');
+  }
+
+  const videoOptions = isRemux ? {} : controlVideoOptions();
+  const audioOptions = plan.audioCopy ? {} : transcodeAudioOptions();
+  currentConversion = await mb.Conversion.init({
+    input: sourceInput, output, tracks: 'primary', tags: {},
+    copy: isRemux ? { mode: 'forced', shiftTolerance: 0, boundaryPolicy: 'expand' } : { mode: 'preferred', shiftTolerance: 0, boundaryPolicy: 'expand' },
+    video: videoOptions,
+    audio: audioOptions
+  });
+  if (!currentConversion.isValid) {
+    const reasons = currentConversion.discardedTracks.map(x => x.reason).join(', ') || 'unknown reason';
+    throw new Error(`Conversion configuration is not valid (${reasons}).`);
+  }
+  currentConversion.onProgress = (fraction, processedTime) => {
+    const elapsed = (performance.now() - startedAt) / 1000;
+    const speed = Number.isFinite(processedTime) && elapsed > 0.5 ? processedTime / elapsed : null;
+    const label = isRemux ? 'Test A: remuxing original tracks' : 'Control: compatible encode';
+    setStage(`${label}${Number.isFinite(processedTime) ? ` · ${processedTime.toFixed(1)} s processed` : ''}${speed ? ` · ${speed.toFixed(2)}× realtime` : ''}`, 2 + fraction * 93);
+  };
+  await currentConversion.execute();
+  return isRemux ? 'Test A — Original / Remux' : 'Control — Compatible';
+}
+
+async function runRealtimeConversion(mb, preset, plan, target, output, startedAt) {
+  const duration = selectedMeta?.duration;
+  const videoSink = new mb.VideoSampleSink(plan.videoTrack, { hardwareAcceleration: 'prefer-hardware' });
+  let actualEncoderConfig = null;
+  const videoSource = new mb.VideoSampleSource({
+    codec: 'avc',
+    quality: new mb.Quality({ bitrate: preset.video_bitrate }),
+    latencyMode: 'realtime',
+    hardwareAcceleration: 'prefer-hardware',
+    keyFrameInterval: preset.gop_seconds,
+    transform: {
+      width: preset.width,
+      height: preset.height,
+      fit: 'contain',
+      frameRate: PROFILE.fps ?? 25,
+      alpha: 'discard'
+    },
+    onEncoderConfig: config => {
+      actualEncoderConfig = config;
+      log(`WebCodecs encoder config: codec=${config.codec}; ${config.width}x${config.height}; bitrate=${config.bitrate ?? 'n/a'}; framerate=${config.framerate ?? 'n/a'}; hardwareAcceleration=${config.hardwareAcceleration ?? 'n/a'}; latencyMode=${config.latencyMode ?? 'n/a'}.`);
+    }
+  });
+  output.addVideoTrack(videoSource, { frameRate: PROFILE.fps ?? 25 });
+
+  currentConversion = await mb.Conversion.init({
+    input: sourceInput,
+    output,
+    tracks: 'primary',
+    video: { discard: true },
+    audio: plan.audioCopy ? {} : transcodeAudioOptions(),
+    copy: { mode: 'preferred', shiftTolerance: 0, boundaryPolicy: 'expand' },
+    tags: {},
+    composable: true,
+    showWarnings: false
+  });
+
+  currentOutput = output;
+  await output.start();
+  let lastAudioPump = -1;
+  let lastTimestamp = 0;
+  try {
+    for await (const sample of videoSink.samples()) {
+      if (cancelRequested) throw new Error('Conversion canceled by user.');
+      lastTimestamp = Math.max(lastTimestamp, sample.timestamp ?? 0);
+      await videoSource.add(sample);
+      sample.close();
+
+      if (lastTimestamp - lastAudioPump >= 1.0) {
+        await currentConversion.execute({ until: lastTimestamp });
+        lastAudioPump = lastTimestamp;
+      }
+      const elapsed = (performance.now() - startedAt) / 1000;
+      const speed = elapsed > 0.5 ? lastTimestamp / elapsed : null;
+      const fraction = Number.isFinite(duration) && duration > 0 ? Math.min(1, lastTimestamp / duration) : 0;
+      setStage(`${preset.label} · ${lastTimestamp.toFixed(1)} s processed${speed ? ` · ${speed.toFixed(2)}× realtime` : ''}`, 2 + fraction * 91);
+    }
+    videoSource.close();
+    await currentConversion.execute();
+    await output.finalize();
+  } catch (err) {
+    try { videoSource.close(); } catch (_) {}
+    try { await output.cancel(); } catch (_) {}
+    throw err;
+  }
+  if (!actualEncoderConfig) log('Realtime encode completed, but Safari did not expose an encoder configuration callback.');
+  return preset.label;
+}
+
+async function xorAndPublish(target, modeLabel, startedAt) {
+  if (!target.buffer) throw new Error('The MP4 muxer produced no output buffer.');
+  setStage('Creating VIO file…', 96);
+  const bytes = new Uint8Array(target.buffer);
+  const chunk = 4 * 1024 * 1024;
+  for (let start = 0; start < bytes.length; start += chunk) {
+    if (cancelRequested) throw new Error('Conversion canceled by user.');
+    const end = Math.min(bytes.length, start + chunk);
+    for (let i = start; i < end; i += 1) bytes[i] ^= XOR_KEY;
+    setStage('Creating VIO file…', 96 + 3 * (end / bytes.length));
+    await new Promise(requestAnimationFrame);
+  }
+
+  const filename = `${els.slot.value}.vio`;
+  resultFile = new File([target.buffer], filename, { type: 'application/octet-stream' });
+  if (resultUrl) URL.revokeObjectURL(resultUrl);
+  resultUrl = URL.createObjectURL(resultFile);
+  els.download.href = resultUrl;
+  els.download.download = filename;
+  const totalSeconds = (performance.now() - startedAt) / 1000;
+  const duration = selectedMeta?.duration;
+  const overallSpeed = Number.isFinite(duration) && totalSeconds > 0 ? duration / totalSeconds : null;
+  els.resultSummary.textContent = `${filename} · ${humanBytes(resultFile.size)} · ${modeLabel} · ${totalSeconds.toFixed(1)} s total${overallSpeed ? ` · ${overallSpeed.toFixed(2)}× realtime overall` : ''}.`;
+  els.resultCard.classList.remove('hidden');
+  setStage('Complete.', 100);
+  log(`RESULT: ${modeLabel}; ${filename}; ${humanBytes(resultFile.size)}; ${totalSeconds.toFixed(1)} s total${overallSpeed ? `; ${overallSpeed.toFixed(2)}x realtime overall` : ''}.`);
 }
 
 async function convert() {
   if (!selectedFile || !sourceInput) return;
   const mb = getMb();
+  const preset = selectedPreset();
+  cancelRequested = false;
   els.convert.disabled = true;
   els.cancel.classList.remove('hidden');
   els.resultCard.classList.add('hidden');
   const startedAt = performance.now();
-  let plan = null;
-
   try {
-    plan = await chooseConversionPlan();
-    const presetKey = els.preset.value;
-    const preset = selectedPreset();
-    const allowVideoCopy = presetKey === 'compatible' && plan.videoCopy;
-    const allowAudioCopy = plan.audioCopy;
-    const mode = allowVideoCopy && allowAudioCopy ? 'FAST REMUX' :
-      allowVideoCopy ? 'HYBRID (copy video, encode audio)' :
-      allowAudioCopy ? `HYBRID (${preset.label}: encode video, copy audio)` : `${preset.label.toUpperCase()} TRANSCODE`;
-    log(`Conversion plan: ${mode}. Preset=${preset.label}; target=${preset.width}x${preset.height} ${(preset.video_bitrate/1000000).toFixed(2)} Mb/s GOP ${preset.gop_seconds}s. Video=${plan.videoCodec}${plan.codecString ? ` ${plan.codecString}` : ''}${Number.isFinite(plan.fps) ? ` ${plan.fps.toFixed(3)} fps` : ''}; audio=${plan.audioCodec}.`);
-    setStage(allowVideoCopy && allowAudioCopy ? 'Fast path: remuxing without re-encoding…' : `Preparing ${preset.label} conversion…`, 2);
-
-    const target = new mb.BufferTarget();
-    const output = new mb.Output({
-      format: new mb.Mp4OutputFormat({ fastStart: 'in-memory', metadataFormat: 'auto' }),
-      target
-    });
-
-    currentConversion = await mb.Conversion.init({
-      input: sourceInput,
-      output,
-      tracks: 'primary',
-      tags: {},
-      copy: { mode: 'preferred', shiftTolerance: 0, boundaryPolicy: 'expand' },
-      video: allowVideoCopy ? {} : transcodeVideoOptions(preset),
-      audio: allowAudioCopy ? {} : transcodeAudioOptions()
-    });
-
-    if (!currentConversion.isValid) {
-      const reasons = currentConversion.discardedTracks.map(x => x.reason).join(', ') || 'unknown reason';
-      throw new Error(`Conversion configuration is not valid on this device (${reasons}).`);
+    const plan = await getTrackPlan();
+    log(`TEST START: ${preset.label}. Source=${plan.width}x${plan.height} ${plan.videoCodec}${plan.codecString ? ` ${plan.codecString}` : ''}; audio=${plan.audioCodec} ${plan.sampleRate} Hz ${plan.channels} ch; duration=${Number.isFinite(selectedMeta?.duration) ? selectedMeta.duration.toFixed(2) + ' s' : 'unknown'}.`);
+    if (preset.kind === 'remux') {
+      log('Test A hypothesis: the player may accept the iPhone H.264/AAC stream without re-encoding. This preserves original resolution/profile/frame rate/bitrate.');
+    } else if (preset.kind === 'realtime') {
+      log(`${preset.label} hypothesis: WebCodecs realtime latency + prefer-hardware may improve 4K downscale/re-encode speed. Target=${preset.width}x${preset.height} ${(preset.video_bitrate / 1000000).toFixed(2)} Mb/s, ${PROFILE.fps ?? 25} fps, GOP ${preset.gop_seconds}s.`);
+    } else {
+      log('Control hypothesis: reproduce the already validated player-compatible profile.');
     }
 
-    currentConversion.onProgress = (fraction, processedTime) => {
-      const pct = 2 + fraction * 93;
-      const elapsed = (performance.now() - startedAt) / 1000;
-      const speed = Number.isFinite(processedTime) && elapsed > 0.5 ? processedTime / elapsed : null;
-      const label = allowVideoCopy && allowAudioCopy ? 'Remuxing locally' : `${preset.label} encode`;
-      setStage(`${label}${Number.isFinite(processedTime) ? ` · ${processedTime.toFixed(1)} s processed` : ''}${speed ? ` · ${speed.toFixed(1)}× realtime` : ''}`, pct);
-    };
-
-    await currentConversion.execute();
-    if (!target.buffer) throw new Error('The MP4 muxer produced no output buffer.');
-
-    setStage('Creating VIO file…', 96);
-    const bytes = new Uint8Array(target.buffer);
-    const chunk = 4 * 1024 * 1024;
-    for (let start = 0; start < bytes.length; start += chunk) {
-      const end = Math.min(bytes.length, start + chunk);
-      for (let i = start; i < end; i += 1) bytes[i] ^= XOR_KEY;
-      setStage('Creating VIO file…', 96 + 3 * (end / bytes.length));
-      await new Promise(requestAnimationFrame);
-    }
-
-    const filename = `${els.slot.value}.vio`;
-    resultFile = new File([target.buffer], filename, { type: 'application/octet-stream' });
-    if (resultUrl) URL.revokeObjectURL(resultUrl);
-    resultUrl = URL.createObjectURL(resultFile);
-    els.download.href = resultUrl;
-    els.download.download = filename;
-    const totalSeconds = (performance.now() - startedAt) / 1000;
-    const resultMode = allowVideoCopy && allowAudioCopy ? 'fast remux' : `${preset.label} encode`;
-    const duration = selectedMeta?.duration;
-    const overallSpeed = Number.isFinite(duration) && totalSeconds > 0 ? ` · ${(duration / totalSeconds).toFixed(2)}× realtime overall` : '';
-    els.resultSummary.textContent = `${filename} · ${humanBytes(resultFile.size)} · ${resultMode} · ${totalSeconds.toFixed(1)} s total${overallSpeed}.`;
-    els.resultCard.classList.remove('hidden');
-    setStage('Complete.', 100);
-    log(`Created ${filename} (${humanBytes(resultFile.size)}) using ${resultMode} in ${totalSeconds.toFixed(1)} s.`);
+    const { target, output } = makeOutput(mb);
+    currentOutput = output;
+    const modeLabel = preset.kind === 'realtime'
+      ? await runRealtimeConversion(mb, preset, plan, target, output, startedAt)
+      : await runStandardConversion(mb, preset, plan, target, output, startedAt);
+    await xorAndPublish(target, modeLabel, startedAt);
   } catch (err) {
-    if (String(err?.name).includes('Canceled') || currentConversion?.state === 'canceled') {
+    if (cancelRequested || /canceled/i.test(err.message ?? '')) {
       setStage('Conversion canceled.', 0);
       log('Conversion canceled by user.');
     } else {
@@ -384,6 +431,7 @@ async function convert() {
     }
   } finally {
     currentConversion = null;
+    currentOutput = null;
     els.cancel.classList.add('hidden');
     els.convert.disabled = !selectedFile || !capabilitiesReady;
   }
@@ -391,10 +439,10 @@ async function convert() {
 
 els.convert.addEventListener('click', convert);
 els.cancel.addEventListener('click', async () => {
-  if (currentConversion) {
-    setStage('Canceling…');
-    await currentConversion.cancel();
-  }
+  cancelRequested = true;
+  setStage('Canceling…');
+  try { if (currentConversion) await currentConversion.cancel(); } catch (_) {}
+  try { if (currentOutput) await currentOutput.cancel(); } catch (_) {}
 });
 
 els.share.addEventListener('click', async () => {

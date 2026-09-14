@@ -1,106 +1,83 @@
-# VIO Converter v2.2
+# VIO Converter v2.4 — Realtime / Remux Experiments
 
-Offline-first PHP-hosted PWA for converting ordinary videos into the `.vio` format accepted by the target device.
+Offline-first PHP/PWA for converting ordinary videos to the `.vio` format used by the target player.
 
-## Current architecture
+## Confirmed format
 
-The application runs locally in the browser. DreamHost/PHP only serves the application and configuration; source videos are not uploaded to the server.
+The target player accepts an MP4 containing H.264/AVC + AAC after every byte is XORed with `0xA7` and saved as `NNN.vio` in the card's `01` directory. The normal Mediabunny/WebCodecs 1080p conversion path has been physically validated on the player.
 
-The primary engine is **Mediabunny + WebCodecs**. The resulting MP4 is XORed byte-for-byte with `0xA7` and saved as `001.vio` … `015.vio`.
+## v2.4 purpose
 
-The complete WebCodecs/Mediabunny output path has been physically validated on the real target player.
+v2.4 is an explicitly instrumented performance experiment for high-resolution iPhone sources, especially 4K AVC recordings. Do not treat every preset as equally validated.
 
-## v2.2 fast path
+### Control — Compatible
 
-v2.2 adds conservative track-copy/remux optimization. The expensive compatibility decision is intentionally deferred until the user presses **Convert**, keeping the fast-selection behavior introduced in v2.1.
+The known-good control:
+- H.264/AVC
+- 1920x1080
+- 25 fps
+- ~1.984 Mb/s
+- GOP 1.2 s
+- AAC 48 kHz stereo
 
-A video track is copied directly when it already matches the validated profile closely enough:
+This is the baseline for player compatibility.
 
-- AVC/H.264
-- Main Profile, Level <= 4.0
-- 1920×1080
-- approximately 25 fps
+### Test A — Original / Remux
 
-An audio track is copied directly when it is already:
+Copies the source H.264 and AAC packets into a new MP4 without re-encoding, then applies XOR `0xA7`.
 
-- AAC
-- 48 kHz
-- stereo
+For an iPhone 14 Pro 4K AVC recording this tests a major hypothesis: **does the player accept the original 3840x2160 High-profile stream directly?**
 
-The two tracks are considered independently. This produces three possible plans:
+If yes, this is by far the fastest path because no video decode/resize/re-encode is needed.
 
-- **FAST REMUX** — copy video + copy audio, no media re-encoding
-- **HYBRID** — copy one compatible track and transcode only the other
-- **TRANSCODE** — use the fully validated WebCodecs conversion for both tracks
+This test intentionally preserves source resolution, AVC profile/level, frame rate and bitrate.
 
-Mediabunny's conversion API natively supports direct packet copying when no transcode-forcing options are applied, so the fast path does not decode/re-encode compatible media.
+### Test B — 1080p Realtime
 
-## Validated transcode profile
+Uses the lower-level Mediabunny sample pipeline so WebCodecs can be requested with:
+- `latencyMode: 'realtime'`
+- `hardwareAcceleration: 'prefer-hardware'`
+- 1920x1080
+- 25 fps
+- ~1.4 Mb/s
+- GOP 2 s
 
-- Video: H.264/AVC, 1920×1080, 25 fps, ~1.984 Mbps
-- Keyframe interval: 1.2 s / 30 frames
-- Audio: AAC-LC, 48 kHz, stereo, 128 kbps
-- Container: MP4, fast-start
-- VIO transform: XOR every byte with `0xA7`
+The app logs the actual `VideoEncoderConfig` returned by Safari so we can see what configuration the browser chose.
 
-## DreamHost install
+### Test C — 720p Realtime
 
-Upload the project to the site directory, then SSH into DreamHost and run:
+Same realtime/hardware-prioritized path as Test B but outputs:
+- 1280x720
+- 25 fps
+- ~1.0 Mb/s
+- GOP 2 s
+
+This isolates whether reducing output pixel count materially helps when the expensive source decode is still 4K.
+
+## Recommended test sequence
+
+Use the same source file for all tests and record:
+1. conversion time / realtime multiplier;
+2. resulting VIO size;
+3. whether the physical player opens it;
+4. complete playback;
+5. audio/video sync;
+6. seeking behavior.
+
+Recommended order: Control, Test A, Test B, Test C.
+
+## Deployment
+
+Upload/pull the repository into the DreamHost document root, then ensure Mediabunny is installed:
 
 ```bash
-cd /path/to/site
 php tools/fetch_mediabunny.php
 ```
 
-Check deployment:
+Verify:
 
 ```text
-https://your-domain/health.php
+https://vio.trekm.com/health.php
 ```
 
-`mediabunny_vendor_ready` should be `true`.
-
-## Local test
-
-After the vendor files exist:
-
-```bash
-php -S 127.0.0.1:8080
-```
-
-Open `http://127.0.0.1:8080/`.
-
-For iPhone/PWA testing use HTTPS on the real host.
-
-## Mobile performance decisions
-
-- Selection is metadata-only.
-- No automatic `<video>` preview is opened for the selected Photos asset.
-- Per-track decoder checks are deferred until conversion is actually required.
-- Fast-path frame-rate probing happens only after pressing Convert and samples a small number of packets.
-- XOR is done in-place on the final MP4 buffer to avoid an extra output-sized allocation.
-- Conversion progress reports effective processing speed where available.
-
-## Known constraints
-
-- The selected input currently must contain both video and audio.
-- The final MP4/VIO still uses an in-memory `BufferTarget`; very long videos need memory/stress testing.
-- Fast-remux eligibility is intentionally conservative. A file that misses the fast path simply uses the already-validated transcode path.
-
-See `HANDOVER.md` for the full reverse-engineering history and continuation notes.
-
-## v2.3 encoder presets
-
-v2.3 adds three selectable encoding modes for physical-player testing:
-
-- **Compatible** — validated 1920x1080, 25 fps, ~1.984 Mb/s, GOP 1.2 s. Compatible AVC/AAC sources may use the fast remux path.
-- **Fast** — forces video re-encoding at 1920x1080, 25 fps, ~1.4 Mb/s, GOP 2.0 s. Intended to reduce encoder work while retaining 1080p.
-- **Experimental** — forces video re-encoding at 1280x720, 25 fps, ~1.0 Mb/s, GOP 2.0 s. Intended to measure the effect of substantially reducing pixel workload.
-
-AAC 48 kHz stereo audio is copied when already compatible; otherwise it is transcoded to the validated 128 kb/s AAC profile.
-
-The **Compatible** profile is physically validated. Fast and Experimental require physical-player validation before they should be treated as production-safe defaults.
-
-
-## UI layout update (v2.3.1)
-The mobile interface is interaction-first. Source selection, target slot, encoding preset, Convert, progress, and result/save actions appear before any explanatory material. Device compatibility, encoding profile details, technical logs, and build/about information are placed after the workflow in collapsed `<details>` panels. This keeps the normal iPhone workflow short while retaining diagnostics when needed.
+Then reload the PWA. v2.4 uses a new Service Worker cache name.

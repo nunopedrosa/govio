@@ -40,7 +40,7 @@ header('Referrer-Policy: no-referrer');
   <main class="app-shell">
     <header class="hero hero-compact">
       <div>
-        <p class="eyebrow">v2.3 · WebCodecs · offline-first</p>
+        <p class="eyebrow">v2.4 · WebCodecs · realtime tests</p>
         <h1>VIO Converter</h1>
       </div>
       <div id="offlineBadge" class="badge">Checking offline support…</div>
@@ -101,7 +101,7 @@ header('Referrer-Policy: no-referrer');
         <summary>Device compatibility</summary>
         <div class="details-body">
           <div id="compatibility" class="status-list"></div>
-          <p class="hint">The app uses browser-native WebCodecs through Mediabunny. Selection stays metadata-only; codec compatibility and fast-remux eligibility are checked when you press Convert.</p>
+          <p class="hint">The app uses browser-native WebCodecs through Mediabunny. Selection stays metadata-only. The four conversion modes are deliberately separated so player compatibility and speed can be tested independently.</p>
         </div>
       </details>
 
@@ -110,9 +110,10 @@ header('Referrer-Policy: no-referrer');
         <div class="details-body technical-profile">
           <dl>
             <div><dt>Engine</dt><dd>Mediabunny; direct packet copy when compatible, WebCodecs hardware transcode otherwise</dd></div>
-            <div><dt>Compatible</dt><dd>H.264/AVC · 1920×1080 · 25 fps · ~1.984 Mb/s · GOP 1.2 s</dd></div>
-            <div><dt>Fast</dt><dd>H.264/AVC · 1920×1080 · 25 fps · ~1.4 Mb/s · GOP 2.0 s</dd></div>
-            <div><dt>Experimental</dt><dd>H.264/AVC · 1280×720 · 25 fps · ~1.0 Mb/s · GOP 2.0 s</dd></div>
+            <div><dt>Control — Compatible</dt><dd>Validated H.264/AVC · 1920×1080 · 25 fps · ~1.984 Mb/s · GOP 1.2 s</dd></div>
+            <div><dt>Test A — Original / Remux</dt><dd>Copies original H.264 + AAC without re-encoding. Tests whether the player accepts the iPhone recording profile directly.</dd></div>
+            <div><dt>Test B — 1080p Realtime</dt><dd>H.264/AVC · 1920×1080 · 25 fps · ~1.4 Mb/s · GOP 2.0 s · hardware preferred · realtime latency</dd></div>
+            <div><dt>Test C — 720p Realtime</dt><dd>H.264/AVC · 1280×720 · 25 fps · ~1.0 Mb/s · GOP 2.0 s · hardware preferred · realtime latency</dd></div>
             <div><dt>Audio</dt><dd>AAC-LC · 48 kHz · stereo · 128 kb/s</dd></div>
             <div><dt>Container</dt><dd>MP4, fast-start</dd></div>
             <div><dt>VIO transform</dt><dd>Every MP4 byte XOR 0xA7</dd></div>

@@ -454,3 +454,66 @@ If Fast is accepted, it is the leading candidate to replace Compatible as the no
 
 ## UI layout update (v2.3.1)
 The mobile interface is interaction-first. Source selection, target slot, encoding preset, Convert, progress, and result/save actions appear before any explanatory material. Device compatibility, encoding profile details, technical logs, and build/about information are placed after the workflow in collapsed `<details>` panels. This keeps the normal iPhone workflow short while retaining diagnostics when needed.
+
+---
+
+## 2026-09-14 — v2.4 realtime/remux experiment
+
+### Motivation
+
+On an iPhone 14 Pro, an iPhone-recorded 4K source was observed converting at roughly 0.2x realtime in the previous Experimental 720p preset. Source characteristics were:
+
+- 3840x2160
+- H.264/AVC High profile (`avc1.640033`, Level 5.1)
+- AAC
+- 48000 Hz
+- stereo
+
+This means the browser must decode 4K AVC, resize every frame, and encode a new H.264 stream. Merely reducing bitrate is unlikely to solve the performance problem.
+
+### v2.4 test modes
+
+**Control — Compatible**
+- Known-good player profile.
+- 1920x1080, 25 fps, ~1.984 Mb/s, GOP 1.2 s.
+- This remains the compatibility control.
+
+**Test A — Original / Remux**
+- Requires AVC + AAC input.
+- Uses Mediabunny forced copy mode.
+- No decode, resizing, frame-rate conversion, or video encoding.
+- Preserves original 4K resolution/profile/level/framerate/bitrate.
+- Tests whether the physical player can directly decode the iPhone's original AVC track after MP4 remux + XOR.
+- If accepted, this becomes the preferred fast path for compatible phone recordings.
+
+**Test B — 1080p Realtime**
+- Uses `VideoSampleSink` with hardware-preferred decode.
+- Uses `VideoSampleSource` with H.264 encoding, `latencyMode='realtime'` and `hardwareAcceleration='prefer-hardware'`.
+- Target 1920x1080, 25 fps, 1.4 Mb/s, GOP 2 s.
+- Audio is copied if already AAC 48 kHz stereo.
+
+**Test C — 720p Realtime**
+- Same low-level realtime/hardware path.
+- Target 1280x720, 25 fps, 1.0 Mb/s, GOP 2 s.
+- Tests whether lower encoder pixel load matters significantly when source decode remains 4K.
+
+### Instrumentation
+
+For each run the app logs:
+- test name;
+- source dimensions, codec string, audio format and duration;
+- target parameters;
+- progress/realtime multiplier;
+- total elapsed time and overall realtime factor;
+- the actual WebCodecs `VideoEncoderConfig` surfaced by Mediabunny where available.
+
+The realtime paths use the lower-level Mediabunny media-source API specifically because the high-level `ConversionVideoOptions` exposes `hardwareAcceleration` but not `latencyMode`. This distinction must be retained in future changes.
+
+### Validation status
+
+- Control / ordinary v2 WebCodecs profile: **physically validated**.
+- Test A Original/Remux with 4K iPhone source: **not yet validated**.
+- Test B 1080p Realtime: **not yet validated**.
+- Test C 720p Realtime: **not yet validated**.
+
+Do not promote Test A/B/C to defaults until the physical player has been tested for complete playback and A/V sync.
