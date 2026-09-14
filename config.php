@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 return [
     'app_name' => 'VIO Converter',
-    'app_version' => '2.0.0-webcodecs',
+    'app_version' => '2.1.0-fast-select',
     'slots' => range(1, 15),
     'xor_key' => 0xA7,
     'conversion' => [

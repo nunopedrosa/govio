@@ -383,3 +383,10 @@ HANDOVER.md                   this document
 ## 14. Suggested prompt for a future ChatGPT session
 
 > Continue the VIO Converter project from the attached HANDOVER.md. The target device uses FAT32 cards with `01/001.vio` etc. VIO is an MP4 XORed byte-for-byte with 0xA7. The PHP-hosted v2 PWA uses Mediabunny/WebCodecs and its browser-generated VIO has been physically validated successfully in the real player on 2026-09-14. Treat Mediabunny/WebCodecs as the preferred architecture; FFmpeg/WASM is not required in the critical path. The next phase is iPhone/PWA offline validation, input-format coverage, memory/stress testing, no-audio handling, and production polish. Do not assume exact original MP4 metadata or filesystem geometry is required; those constraints have already been disproven by physical tests.
+
+
+## 2026-09-14 — Mobile Safari large-video selection tuning
+
+Observed on iPhone: a ~10 s video selected quickly, while a ~2 min video could remain in the selection/inspection stage for several minutes. The v2 selection handler was doing two expensive things before the user pressed Convert: calling `videoTrack.canDecode()` / `audioTrack.canDecode()` on the concrete tracks, and immediately attaching the Photos-backed `File` to a `<video>` preview.
+
+Version 2.1 changes selection to be metadata-only. It constructs Mediabunny `Input` with `BlobSource` (2 MiB cache), reads track/container metadata, and defers decoder validation to `Conversion.init()` after Convert is pressed. Automatic preview attachment is disabled. Selection timing is logged so future iPhone tests can separate iOS Photos materialization time from application metadata-read time.

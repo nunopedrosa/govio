@@ -130,54 +130,64 @@ async function checkCapabilities() {
 async function inspectSelectedFile(file) {
   const mb = getMb();
   sourceInput?.dispose?.();
-  sourceInput = new mb.Input({ formats: mb.ALL_FORMATS, source: new mb.BlobSource(file) });
+
+  // BlobSource reads the selected File lazily. Keep selection metadata-only:
+  // do NOT call track.canDecode() here and do NOT attach the file to <video>.
+  sourceInput = new mb.Input({
+    formats: mb.ALL_FORMATS,
+    source: new mb.BlobSource(file, { maxCacheSize: 2 * 1024 * 1024 })
+  });
 
   const videoTrack = await sourceInput.getPrimaryVideoTrack();
   if (!videoTrack) throw new Error('No video track was found in this file.');
   const audioTrack = await sourceInput.getPrimaryAudioTrack();
   if (!audioTrack) throw new Error('No audio track was found. This prototype requires audio to match the validated device profile.');
 
-  const [videoDecodable, audioDecodable] = await Promise.all([
-    videoTrack.canDecode(),
-    audioTrack.canDecode()
+  // These are container/track metadata reads only. Decoder capability is checked
+  // later by Conversion.init() when the user explicitly starts conversion.
+  const [videoCodec, audioCodec, width, height, channels, sampleRate, duration] = await Promise.all([
+    (videoTrack.getCodec?.() ?? Promise.resolve(videoTrack.codec ?? 'unknown')),
+    (audioTrack.getCodec?.() ?? Promise.resolve(audioTrack.codec ?? 'unknown')),
+    videoTrack.getDisplayWidth(),
+    videoTrack.getDisplayHeight(),
+    audioTrack.getNumberOfChannels(),
+    audioTrack.getSampleRate(),
+    videoTrack.getDurationFromMetadata?.().catch?.(() => null) ?? Promise.resolve(null)
   ]);
 
-  const videoCodec = (await videoTrack.getCodec?.()) ?? videoTrack.codec ?? 'unknown';
-  const audioCodec = (await audioTrack.getCodec?.()) ?? audioTrack.codec ?? 'unknown';
-  const width = await videoTrack.getDisplayWidth();
-  const height = await videoTrack.getDisplayHeight();
-  const channels = await audioTrack.getNumberOfChannels();
-  const sampleRate = await audioTrack.getSampleRate();
-
-  if (!videoDecodable) throw new Error(`This browser cannot decode the source video codec (${videoCodec}). Try a newer iPhone/browser or convert the source first.`);
-  if (!audioDecodable) throw new Error(`This browser cannot decode the source audio codec (${audioCodec}).`);
-
-  return { videoCodec, audioCodec, width, height, channels, sampleRate };
+  return { videoCodec, audioCodec, width, height, channels, sampleRate, duration };
 }
 
 els.input.addEventListener('change', async () => {
   const file = els.input.files?.[0];
   if (!file) return;
+  const started = performance.now();
   selectedFile = file;
   els.convert.disabled = true;
   els.resultCard.classList.add('hidden');
-  setStage('Inspecting source video…', 0);
+  setStage('Reading video metadata…', 0);
 
-  if (resultUrl) URL.revokeObjectURL(resultUrl);
-  const previewUrl = URL.createObjectURL(file);
-  els.preview.src = previewUrl;
-  els.preview.classList.remove('hidden');
+  // Do not automatically create/attach a preview on iOS. Attaching a large
+  // Photos-backed File to <video> can cause Safari/Photos to prepare/read it
+  // before the user has asked to convert.
+  els.preview.pause?.();
+  els.preview.removeAttribute('src');
+  els.preview.load?.();
+  els.preview.classList.add('hidden');
 
   try {
     const info = await inspectSelectedFile(file);
-    els.sourceInfo.innerHTML = `<strong>${file.name}</strong><br>${humanBytes(file.size)} · ${info.width}×${info.height} · video ${info.videoCodec} · audio ${info.audioCodec}, ${info.sampleRate} Hz, ${info.channels} ch`;
-    log(`Source accepted: ${info.videoCodec} video + ${info.audioCodec} audio.`);
+    const elapsed = (performance.now() - started) / 1000;
+    const durationText = Number.isFinite(info.duration) ? ` · ${info.duration.toFixed(1)} s` : '';
+    els.sourceInfo.innerHTML = `<strong>${file.name}</strong><br>${humanBytes(file.size)}${durationText} · ${info.width}×${info.height} · video ${info.videoCodec} · audio ${info.audioCodec}, ${info.sampleRate} Hz, ${info.channels} ch`;
+    log(`Source metadata ready in ${elapsed.toFixed(2)} s: ${info.videoCodec} video + ${info.audioCodec} audio.`);
     els.convert.disabled = !capabilitiesReady;
-    setStage(capabilitiesReady ? 'Ready to convert.' : 'Source is readable, but required output codecs are unavailable.', 0);
+    setStage(capabilitiesReady ? 'Ready to convert.' : 'Source metadata is readable, but required output codecs are unavailable.', 0);
   } catch (err) {
+    const elapsed = (performance.now() - started) / 1000;
     els.sourceInfo.textContent = `${file.name} — ${err.message}`;
     setStage(`Source not supported: ${err.message}`, 0);
-    log(`Source rejected: ${err.message}`);
+    log(`Source inspection failed after ${elapsed.toFixed(2)} s: ${err.message}`);
   }
 });
 
@@ -187,7 +197,7 @@ async function convert() {
   els.convert.disabled = true;
   els.cancel.classList.remove('hidden');
   els.resultCard.classList.add('hidden');
-  setStage('Preparing WebCodecs conversion…', 1);
+  setStage('Checking source codecs and preparing conversion…', 1);
   log('Starting WebCodecs/Mediabunny conversion.');
 
   try {
