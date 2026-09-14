@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE_NAME = 'vio-converter-v2.4.0-realtime-tests';
+const CACHE_NAME = 'vio-converter-v2.4.1-realtime-fix';
 const APP_SHELL = [
   './',
   './manifest.webmanifest',

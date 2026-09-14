@@ -517,3 +517,8 @@ The realtime paths use the lower-level Mediabunny media-source API specifically 
 - Test C 720p Realtime: **not yet validated**.
 
 Do not promote Test A/B/C to defaults until the physical player has been tested for complete playback and A/V sync.
+
+
+## v2.4.1 composable conversion fix
+
+Tests B/C previously passed `tags: {}` to a Mediabunny conversion configured with `composable: true`. Mediabunny disallows conversion-level metadata in composable mode because the caller owns the output lifecycle. v2.4.1 removes that illegal option; output metadata is intentionally left unset for these experimental paths.

@@ -81,3 +81,8 @@ https://vio.trekm.com/health.php
 ```
 
 Then reload the PWA. v2.4 uses a new Service Worker cache name.
+
+
+## v2.4.1 composable conversion fix
+
+Tests B/C previously passed `tags: {}` to a Mediabunny conversion configured with `composable: true`. Mediabunny disallows conversion-level metadata in composable mode because the caller owns the output lifecycle. v2.4.1 removes that illegal option; output metadata is intentionally left unset for these experimental paths.

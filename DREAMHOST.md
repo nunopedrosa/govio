@@ -76,3 +76,8 @@ v2.3 changes only application/configuration files. Existing self-hosted Mediabun
 v2.4 changes the Service Worker cache name. After `git pull`, reload the site on iPhone. If Safari continues to show an older UI, close/reopen the PWA or clear the site's cached website data during development.
 
 No new server-side dependency is required; the existing self-hosted Mediabunny 1.56.2 assets are reused.
+
+
+## v2.4.1 composable conversion fix
+
+Tests B/C previously passed `tags: {}` to a Mediabunny conversion configured with `composable: true`. Mediabunny disallows conversion-level metadata in composable mode because the caller owns the output lifecycle. v2.4.1 removes that illegal option; output metadata is intentionally left unset for these experimental paths.

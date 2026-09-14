@@ -330,7 +330,6 @@ async function runRealtimeConversion(mb, preset, plan, target, output, startedAt
     video: { discard: true },
     audio: plan.audioCopy ? {} : transcodeAudioOptions(),
     copy: { mode: 'preferred', shiftTolerance: 0, boundaryPolicy: 'expand' },
-    tags: {},
     composable: true,
     showWarnings: false
   });

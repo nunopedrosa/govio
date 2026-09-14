@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 return [
     'app_name' => 'VIO Converter',
-    'app_version' => '2.4.0-realtime-tests',
+    'app_version' => '2.4.1-realtime-fix',
     'slots' => range(1, 15),
     'xor_key' => 0xA7,
     'conversion' => [

@@ -40,7 +40,7 @@ header('Referrer-Policy: no-referrer');
   <main class="app-shell">
     <header class="hero hero-compact">
       <div>
-        <p class="eyebrow">v2.4 · WebCodecs · realtime tests</p>
+        <p class="eyebrow">v2.4.1 · WebCodecs · realtime tests</p>
         <h1>VIO Converter</h1>
       </div>
       <div id="offlineBadge" class="badge">Checking offline support…</div>
