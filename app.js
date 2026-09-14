@@ -11,6 +11,8 @@ const els = {
   sourceInfo: document.querySelector('#sourceInfo'),
   preview: document.querySelector('#preview'),
   slot: document.querySelector('#slot'),
+  preset: document.querySelector('#preset'),
+  presetInfo: document.querySelector('#presetInfo'),
   convert: document.querySelector('#convertButton'),
   cancel: document.querySelector('#cancelButton'),
   progress: document.querySelector('#progress'),
@@ -24,11 +26,14 @@ const els = {
 };
 
 let selectedFile = null;
+let selectedMeta = null;
 let sourceInput = null;
 let currentConversion = null;
 let resultFile = null;
 let resultUrl = null;
 let capabilitiesReady = false;
+const PRESETS = PROFILE.presets ?? { compatible: { label: 'Compatible', width: 1920, height: 1080, video_bitrate: 1984000, gop_seconds: 1.2, description: 'Validated profile.' } };
+
 
 for (const n of (CONFIG.slots ?? Array.from({ length: 15 }, (_, i) => String(i + 1).padStart(3, '0')))) {
   const option = document.createElement('option');
@@ -36,6 +41,40 @@ for (const n of (CONFIG.slots ?? Array.from({ length: 15 }, (_, i) => String(i +
   option.textContent = `${n}.vio`;
   els.slot.append(option);
 }
+
+
+for (const [key, preset] of Object.entries(PRESETS)) {
+  const option = document.createElement('option');
+  option.value = key;
+  option.textContent = preset.label ?? key;
+  els.preset.append(option);
+}
+
+function selectedPreset() {
+  return PRESETS[els.preset.value] ?? PRESETS.compatible ?? Object.values(PRESETS)[0];
+}
+
+function updatePresetInfo() {
+  const p = selectedPreset();
+  els.presetInfo.textContent = `${p.description ?? ''} ${p.width}×${p.height}, ${(p.video_bitrate / 1000000).toFixed(2)} Mb/s, GOP ${p.gop_seconds.toFixed(1)} s.`.trim();
+  try { localStorage.setItem('vio.lastPreset', els.preset.value); } catch (_) {}
+}
+
+try {
+  const savedPreset = localStorage.getItem('vio.lastPreset');
+  if (savedPreset && [...els.preset.options].some(o => o.value === savedPreset)) els.preset.value = savedPreset;
+} catch (_) {}
+els.preset.addEventListener('change', updatePresetInfo);
+updatePresetInfo();
+
+try {
+  const savedSlot = localStorage.getItem('vio.lastSlot');
+  if (savedSlot && [...els.slot.options].some(o => o.value === savedSlot)) els.slot.value = savedSlot;
+} catch (_) {}
+
+els.slot.addEventListener('change', () => {
+  try { localStorage.setItem('vio.lastSlot', els.slot.value); } catch (_) {}
+});
 
 function log(message) {
   const stamp = new Date().toLocaleTimeString();
@@ -105,8 +144,8 @@ async function checkCapabilities() {
       aac = await mb.canEncodeAudio('aac');
       log('Native AAC encoder unavailable; registered the small bundled AAC fallback encoder.');
     }
-    capabilityRow('H.264/AVC encoder', avc, 'Required output video codec');
-    capabilityRow('AAC encoder', aac, 'Required output audio codec');
+    capabilityRow('H.264/AVC encoder', avc, 'Required when video transcoding is needed');
+    capabilityRow('AAC encoder', aac, 'Required when audio transcoding is needed');
     capabilitiesReady = Boolean(avc && aac);
     if (!capabilitiesReady) setStage('This device cannot encode the required AVC/AAC profile.');
   } catch (err) {
@@ -131,8 +170,6 @@ async function inspectSelectedFile(file) {
   const mb = getMb();
   sourceInput?.dispose?.();
 
-  // BlobSource reads the selected File lazily. Keep selection metadata-only:
-  // do NOT call track.canDecode() here and do NOT attach the file to <video>.
   sourceInput = new mb.Input({
     formats: mb.ALL_FORMATS,
     source: new mb.BlobSource(file, { maxCacheSize: 2 * 1024 * 1024 })
@@ -143,19 +180,18 @@ async function inspectSelectedFile(file) {
   const audioTrack = await sourceInput.getPrimaryAudioTrack();
   if (!audioTrack) throw new Error('No audio track was found. This prototype requires audio to match the validated device profile.');
 
-  // These are container/track metadata reads only. Decoder capability is checked
-  // later by Conversion.init() when the user explicitly starts conversion.
-  const [videoCodec, audioCodec, width, height, channels, sampleRate, duration] = await Promise.all([
-    (videoTrack.getCodec?.() ?? Promise.resolve(videoTrack.codec ?? 'unknown')),
-    (audioTrack.getCodec?.() ?? Promise.resolve(audioTrack.codec ?? 'unknown')),
+  const [videoCodec, videoCodecString, audioCodec, width, height, channels, sampleRate, duration] = await Promise.all([
+    videoTrack.getCodec(),
+    videoTrack.getCodecParameterString?.() ?? Promise.resolve(null),
+    audioTrack.getCodec(),
     videoTrack.getDisplayWidth(),
     videoTrack.getDisplayHeight(),
     audioTrack.getNumberOfChannels(),
     audioTrack.getSampleRate(),
-    videoTrack.getDurationFromMetadata?.().catch?.(() => null) ?? Promise.resolve(null)
+    videoTrack.getDurationFromMetadata().catch(() => null)
   ]);
 
-  return { videoCodec, audioCodec, width, height, channels, sampleRate, duration };
+  return { videoCodec, videoCodecString, audioCodec, width, height, channels, sampleRate, duration };
 }
 
 els.input.addEventListener('change', async () => {
@@ -163,24 +199,24 @@ els.input.addEventListener('change', async () => {
   if (!file) return;
   const started = performance.now();
   selectedFile = file;
+  selectedMeta = null;
+  resultFile = null;
+  if (resultUrl) { URL.revokeObjectURL(resultUrl); resultUrl = null; }
   els.convert.disabled = true;
   els.resultCard.classList.add('hidden');
   setStage('Reading video metadata…', 0);
 
-  // Do not automatically create/attach a preview on iOS. Attaching a large
-  // Photos-backed File to <video> can cause Safari/Photos to prepare/read it
-  // before the user has asked to convert.
   els.preview.pause?.();
   els.preview.removeAttribute('src');
   els.preview.load?.();
   els.preview.classList.add('hidden');
 
   try {
-    const info = await inspectSelectedFile(file);
+    selectedMeta = await inspectSelectedFile(file);
     const elapsed = (performance.now() - started) / 1000;
-    const durationText = Number.isFinite(info.duration) ? ` · ${info.duration.toFixed(1)} s` : '';
-    els.sourceInfo.innerHTML = `<strong>${file.name}</strong><br>${humanBytes(file.size)}${durationText} · ${info.width}×${info.height} · video ${info.videoCodec} · audio ${info.audioCodec}, ${info.sampleRate} Hz, ${info.channels} ch`;
-    log(`Source metadata ready in ${elapsed.toFixed(2)} s: ${info.videoCodec} video + ${info.audioCodec} audio.`);
+    const durationText = Number.isFinite(selectedMeta.duration) ? ` · ${selectedMeta.duration.toFixed(1)} s` : '';
+    els.sourceInfo.innerHTML = `<strong>${file.name}</strong><br>${humanBytes(file.size)}${durationText} · ${selectedMeta.width}×${selectedMeta.height} · video ${selectedMeta.videoCodec}${selectedMeta.videoCodecString ? ` (${selectedMeta.videoCodecString})` : ''} · audio ${selectedMeta.audioCodec}, ${selectedMeta.sampleRate} Hz, ${selectedMeta.channels} ch`;
+    log(`Source metadata ready in ${elapsed.toFixed(2)} s: ${selectedMeta.videoCodec} video + ${selectedMeta.audioCodec} audio.`);
     els.convert.disabled = !capabilitiesReady;
     setStage(capabilitiesReady ? 'Ready to convert.' : 'Source metadata is readable, but required output codecs are unavailable.', 0);
   } catch (err) {
@@ -191,16 +227,97 @@ els.input.addEventListener('change', async () => {
   }
 });
 
+function isMainProfileAtMostLevel40(codecString) {
+  if (!codecString) return false;
+  const match = /^avc1\.([0-9a-f]{6})$/i.exec(codecString.trim());
+  if (!match) return false;
+  const profile = parseInt(match[1].slice(0, 2), 16);
+  const level = parseInt(match[1].slice(4, 6), 16);
+  return profile === 0x4d && level <= 0x28;
+}
+
+async function chooseConversionPlan() {
+  const videoTrack = await sourceInput.getPrimaryVideoTrack();
+  const audioTrack = await sourceInput.getPrimaryAudioTrack();
+  if (!videoTrack || !audioTrack) throw new Error('Primary video/audio tracks are no longer available. Please reselect the file.');
+
+  setStage('Checking for fast-path compatibility…', 1);
+  const [videoCodec, codecString, width, height, audioCodec, sampleRate, channels] = await Promise.all([
+    videoTrack.getCodec(),
+    videoTrack.getCodecParameterString?.() ?? Promise.resolve(null),
+    videoTrack.getDisplayWidth(),
+    videoTrack.getDisplayHeight(),
+    audioTrack.getCodec(),
+    audioTrack.getSampleRate(),
+    audioTrack.getNumberOfChannels()
+  ]);
+
+  const compatiblePreset = PRESETS.compatible ?? selectedPreset();
+  let fps = null;
+  if (videoCodec === 'avc' && width === compatiblePreset.width && height === compatiblePreset.height) {
+    // This reads only a small packet sample and is intentionally deferred until Convert.
+    const metrics = await videoTrack.computeFrameRateMetrics({ targetPacketCount: 64 });
+    fps = metrics.bestGuessFrameRate;
+  }
+
+  const videoCopy = videoCodec === 'avc' &&
+    width === compatiblePreset.width &&
+    height === compatiblePreset.height &&
+    Number.isFinite(fps) && Math.abs(fps - (PROFILE.fps ?? 25)) <= 0.05 &&
+    isMainProfileAtMostLevel40(codecString);
+
+  const audioCopy = audioCodec === 'aac' &&
+    sampleRate === (PROFILE.audio_rate ?? 48000) &&
+    channels === (PROFILE.audio_channels ?? 2);
+
+  return { videoCopy, audioCopy, fps, codecString, videoCodec, audioCodec };
+}
+
+function transcodeVideoOptions(preset) {
+  return {
+    codec: 'avc',
+    width: preset.width,
+    height: preset.height,
+    fit: 'contain',
+    frameRate: PROFILE.fps ?? 25,
+    bitrate: preset.video_bitrate,
+    keyFrameInterval: preset.gop_seconds,
+    hardwareAcceleration: 'prefer-hardware',
+    forceTranscode: true
+  };
+}
+
+function transcodeAudioOptions() {
+  return {
+    codec: 'aac',
+    bitrate: PROFILE.audio_bitrate ?? 128000,
+    sampleRate: PROFILE.audio_rate ?? 48000,
+    numberOfChannels: PROFILE.audio_channels ?? 2,
+    forceTranscode: true
+  };
+}
+
 async function convert() {
   if (!selectedFile || !sourceInput) return;
   const mb = getMb();
   els.convert.disabled = true;
   els.cancel.classList.remove('hidden');
   els.resultCard.classList.add('hidden');
-  setStage('Checking source codecs and preparing conversion…', 1);
-  log('Starting WebCodecs/Mediabunny conversion.');
+  const startedAt = performance.now();
+  let plan = null;
 
   try {
+    plan = await chooseConversionPlan();
+    const presetKey = els.preset.value;
+    const preset = selectedPreset();
+    const allowVideoCopy = presetKey === 'compatible' && plan.videoCopy;
+    const allowAudioCopy = plan.audioCopy;
+    const mode = allowVideoCopy && allowAudioCopy ? 'FAST REMUX' :
+      allowVideoCopy ? 'HYBRID (copy video, encode audio)' :
+      allowAudioCopy ? `HYBRID (${preset.label}: encode video, copy audio)` : `${preset.label.toUpperCase()} TRANSCODE`;
+    log(`Conversion plan: ${mode}. Preset=${preset.label}; target=${preset.width}x${preset.height} ${(preset.video_bitrate/1000000).toFixed(2)} Mb/s GOP ${preset.gop_seconds}s. Video=${plan.videoCodec}${plan.codecString ? ` ${plan.codecString}` : ''}${Number.isFinite(plan.fps) ? ` ${plan.fps.toFixed(3)} fps` : ''}; audio=${plan.audioCodec}.`);
+    setStage(allowVideoCopy && allowAudioCopy ? 'Fast path: remuxing without re-encoding…' : `Preparing ${preset.label} conversion…`, 2);
+
     const target = new mb.BufferTarget();
     const output = new mb.Output({
       format: new mb.Mp4OutputFormat({ fastStart: 'in-memory', metadataFormat: 'auto' }),
@@ -212,24 +329,9 @@ async function convert() {
       output,
       tracks: 'primary',
       tags: {},
-      video: {
-        codec: 'avc',
-        width: PROFILE.width ?? 1920,
-        height: PROFILE.height ?? 1080,
-        fit: 'contain',
-        frameRate: PROFILE.fps ?? 25,
-        bitrate: PROFILE.video_bitrate ?? 1984000,
-        keyFrameInterval: PROFILE.gop_seconds ?? 1.2,
-        hardwareAcceleration: 'prefer-hardware',
-        forceTranscode: true
-      },
-      audio: {
-        codec: 'aac',
-        bitrate: PROFILE.audio_bitrate ?? 128000,
-        sampleRate: PROFILE.audio_rate ?? 48000,
-        numberOfChannels: PROFILE.audio_channels ?? 2,
-        forceTranscode: true
-      }
+      copy: { mode: 'preferred', shiftTolerance: 0, boundaryPolicy: 'expand' },
+      video: allowVideoCopy ? {} : transcodeVideoOptions(preset),
+      audio: allowAudioCopy ? {} : transcodeAudioOptions()
     });
 
     if (!currentConversion.isValid) {
@@ -239,7 +341,10 @@ async function convert() {
 
     currentConversion.onProgress = (fraction, processedTime) => {
       const pct = 2 + fraction * 93;
-      setStage(`Encoding locally${Number.isFinite(processedTime) ? ` · ${processedTime.toFixed(1)} s processed` : ''}`, pct);
+      const elapsed = (performance.now() - startedAt) / 1000;
+      const speed = Number.isFinite(processedTime) && elapsed > 0.5 ? processedTime / elapsed : null;
+      const label = allowVideoCopy && allowAudioCopy ? 'Remuxing locally' : `${preset.label} encode`;
+      setStage(`${label}${Number.isFinite(processedTime) ? ` · ${processedTime.toFixed(1)} s processed` : ''}${speed ? ` · ${speed.toFixed(1)}× realtime` : ''}`, pct);
     };
 
     await currentConversion.execute();
@@ -247,7 +352,6 @@ async function convert() {
 
     setStage('Creating VIO file…', 96);
     const bytes = new Uint8Array(target.buffer);
-    // XOR in place: avoids a second full-size output buffer on memory-constrained phones.
     const chunk = 4 * 1024 * 1024;
     for (let start = 0; start < bytes.length; start += chunk) {
       const end = Math.min(bytes.length, start + chunk);
@@ -262,10 +366,14 @@ async function convert() {
     resultUrl = URL.createObjectURL(resultFile);
     els.download.href = resultUrl;
     els.download.download = filename;
-    els.resultSummary.textContent = `${filename} · ${humanBytes(resultFile.size)} · generated entirely on this device.`;
+    const totalSeconds = (performance.now() - startedAt) / 1000;
+    const resultMode = allowVideoCopy && allowAudioCopy ? 'fast remux' : `${preset.label} encode`;
+    const duration = selectedMeta?.duration;
+    const overallSpeed = Number.isFinite(duration) && totalSeconds > 0 ? ` · ${(duration / totalSeconds).toFixed(2)}× realtime overall` : '';
+    els.resultSummary.textContent = `${filename} · ${humanBytes(resultFile.size)} · ${resultMode} · ${totalSeconds.toFixed(1)} s total${overallSpeed}.`;
     els.resultCard.classList.remove('hidden');
     setStage('Complete.', 100);
-    log(`Created ${filename} (${humanBytes(resultFile.size)}).`);
+    log(`Created ${filename} (${humanBytes(resultFile.size)}) using ${resultMode} in ${totalSeconds.toFixed(1)} s.`);
   } catch (err) {
     if (String(err?.name).includes('Canceled') || currentConversion?.state === 'canceled') {
       setStage('Conversion canceled.', 0);

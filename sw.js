@@ -1,4 +1,4 @@
-const CACHE = 'vio-converter-v6-fast-select';
+const CACHE = 'vio-converter-v9-interaction-first';
 const ASSETS = [
   './', './index.php', './styles.css', './app.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png',

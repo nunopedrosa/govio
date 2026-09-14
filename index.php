@@ -38,60 +38,56 @@ header('Referrer-Policy: no-referrer');
 </head>
 <body>
   <main class="app-shell">
-    <header class="hero">
+    <header class="hero hero-compact">
       <div>
-        <p class="eyebrow">v2 · WebCodecs · PHP-hosted · offline-first</p>
+        <p class="eyebrow">v2.3 · WebCodecs · offline-first</p>
         <h1>VIO Converter</h1>
-        <p class="subtitle">Convert a video into the validated <code>NNN.vio</code> format locally on the iPhone. No upload, no server transcoding, no FFmpeg/WASM core.</p>
       </div>
       <div id="offlineBadge" class="badge">Checking offline support…</div>
     </header>
 
-    <section class="card">
-      <h2>Device check</h2>
-      <div id="compatibility" class="status-list"></div>
-      <p class="hint">v2 uses browser-native WebCodecs through Mediabunny. Input codec support is checked again after you select a video.</p>
-    </section>
+    <section class="card workflow-card">
+      <h2>Convert a video</h2>
+      <div class="workflow-grid">
+        <div class="workflow-section workflow-source">
+          <label class="workflow-label">1. Source video</label>
+          <label class="file-picker">
+            <span>Select video</span>
+            <input id="videoInput" type="file" accept="video/*,.webm,.mp4,.mov,.m4v,.mkv" />
+          </label>
+          <div id="sourceInfo" class="source-info muted">No video selected.</div>
+          <video id="preview" controls playsinline class="preview hidden"></video>
+        </div>
 
-    <section class="card">
-      <h2>1. Choose a video</h2>
-      <label class="file-picker">
-        <span>Select video</span>
-        <input id="videoInput" type="file" accept="video/*,.webm,.mp4,.mov,.m4v,.mkv" />
-      </label>
-      <div id="sourceInfo" class="source-info muted">No video selected.</div>
-      <video id="preview" controls playsinline class="preview hidden"></video>
-    </section>
+        <div class="workflow-section">
+          <label class="workflow-label" for="slot">2. Target slot</label>
+          <select id="slot"></select>
+        </div>
 
-    <section class="card grid-two">
-      <div>
-        <h2>2. Choose slot</h2>
-        <label for="slot">Target filename</label>
-        <select id="slot"></select>
-        <p class="hint">Slots 001–015 match the card layout observed on the original media.</p>
+        <div class="workflow-section">
+          <label class="workflow-label" for="preset">3. Encoding mode</label>
+          <select id="preset"></select>
+          <p id="presetInfo" class="hint"></p>
+        </div>
       </div>
-      <div>
-        <h2>3. Convert</h2>
+
+      <div class="convert-actions">
         <button id="convertButton" class="primary" disabled>Convert to VIO</button>
         <button id="cancelButton" class="secondary hidden">Cancel</button>
       </div>
-    </section>
 
-    <section class="card">
-      <div class="progress-head">
-        <h2>Progress</h2>
-        <span id="progressPercent">0%</span>
+      <div class="progress-block">
+        <div class="progress-head">
+          <strong>Progress</strong>
+          <span id="progressPercent">0%</span>
+        </div>
+        <progress id="progress" max="100" value="0"></progress>
+        <p id="stage" class="stage">Waiting for a source video.</p>
       </div>
-      <progress id="progress" max="100" value="0"></progress>
-      <p id="stage" class="stage">Waiting for a source video.</p>
-      <details>
-        <summary>Technical log</summary>
-        <pre id="log"></pre>
-      </details>
     </section>
 
     <section class="card hidden" id="resultCard">
-      <h2>4. Save the result</h2>
+      <h2>Save the result</h2>
       <p id="resultSummary"></p>
       <div class="actions">
         <button id="shareButton" class="primary">Share / Save</button>
@@ -100,17 +96,44 @@ header('Referrer-Policy: no-referrer');
       <p class="hint">On iPhone/iPad, save the file into the SD card's <code>01</code> folder through the system share/save sheet.</p>
     </section>
 
-    <section class="card technical-profile">
-      <h2>Validated output profile</h2>
-      <dl>
-        <div><dt>Engine</dt><dd>WebCodecs via Mediabunny; hardware acceleration preferred</dd></div>
-        <div><dt>Video</dt><dd>H.264/AVC · 1920×1080 · 25 fps · ~1.984 Mb/s</dd></div>
-        <div><dt>GOP</dt><dd>Keyframe interval 1.2 s (30 frames at 25 fps)</dd></div>
-        <div><dt>Audio</dt><dd>AAC-LC · 48 kHz · stereo · 128 kb/s</dd></div>
-        <div><dt>Container</dt><dd>MP4, fast-start</dd></div>
-        <div><dt>VIO transform</dt><dd>Every MP4 byte XOR 0xA7</dd></div>
-      </dl>
-      <p class="hint">Build <?= htmlspecialchars($config['app_version'], ENT_QUOTES, 'UTF-8') ?></p>
+    <section class="info-panels" aria-label="Application information">
+      <details class="card collapsible">
+        <summary>Device compatibility</summary>
+        <div class="details-body">
+          <div id="compatibility" class="status-list"></div>
+          <p class="hint">The app uses browser-native WebCodecs through Mediabunny. Selection stays metadata-only; codec compatibility and fast-remux eligibility are checked when you press Convert.</p>
+        </div>
+      </details>
+
+      <details class="card collapsible">
+        <summary>Encoding profiles</summary>
+        <div class="details-body technical-profile">
+          <dl>
+            <div><dt>Engine</dt><dd>Mediabunny; direct packet copy when compatible, WebCodecs hardware transcode otherwise</dd></div>
+            <div><dt>Compatible</dt><dd>H.264/AVC · 1920×1080 · 25 fps · ~1.984 Mb/s · GOP 1.2 s</dd></div>
+            <div><dt>Fast</dt><dd>H.264/AVC · 1920×1080 · 25 fps · ~1.4 Mb/s · GOP 2.0 s</dd></div>
+            <div><dt>Experimental</dt><dd>H.264/AVC · 1280×720 · 25 fps · ~1.0 Mb/s · GOP 2.0 s</dd></div>
+            <div><dt>Audio</dt><dd>AAC-LC · 48 kHz · stereo · 128 kb/s</dd></div>
+            <div><dt>Container</dt><dd>MP4, fast-start</dd></div>
+            <div><dt>VIO transform</dt><dd>Every MP4 byte XOR 0xA7</dd></div>
+          </dl>
+        </div>
+      </details>
+
+      <details class="card collapsible">
+        <summary>Technical log</summary>
+        <div class="details-body">
+          <pre id="log"></pre>
+        </div>
+      </details>
+
+      <details class="card collapsible">
+        <summary>About this build</summary>
+        <div class="details-body">
+          <p class="hint">Runs locally in the browser. Videos are not uploaded for conversion. The generated MP4 is transformed into the player-compatible <code>NNN.vio</code> format by XORing every byte with <code>0xA7</code>.</p>
+          <p class="hint">Build <?= htmlspecialchars($config['app_version'], ENT_QUOTES, 'UTF-8') ?></p>
+        </div>
+      </details>
     </section>
   </main>
 </body>

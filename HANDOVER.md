@@ -390,3 +390,67 @@ HANDOVER.md                   this document
 Observed on iPhone: a ~10 s video selected quickly, while a ~2 min video could remain in the selection/inspection stage for several minutes. The v2 selection handler was doing two expensive things before the user pressed Convert: calling `videoTrack.canDecode()` / `audioTrack.canDecode()` on the concrete tracks, and immediately attaching the Photos-backed `File` to a `<video>` preview.
 
 Version 2.1 changes selection to be metadata-only. It constructs Mediabunny `Input` with `BlobSource` (2 MiB cache), reads track/container metadata, and defers decoder validation to `Conversion.init()` after Convert is pressed. Automatic preview attachment is disabled. Selection timing is logged so future iPhone tests can separate iOS Photos materialization time from application metadata-read time.
+
+## 2026-09-14 — v2.2 fast-path tuning
+
+After the v2.1 selection optimization, a ~2-minute video became available for conversion within a few seconds on Mobile Safari. The conversion completed, the resulting `.vio` was saved directly to the microSD card, and the target hardware played it successfully. This confirms that the metadata-only selection change solved the major pre-conversion delay without breaking the validated output path.
+
+Version **2.2.0-fast-path** adds conservative direct-copy/remux optimization while preserving the v2.1 fast-selection behavior.
+
+The optimization decision is deferred until the user presses **Convert**. This is deliberate: selection must remain cheap on iOS Photos-backed files. At conversion start, the application performs a small frame-rate probe only when the video is already AVC at 1920×1080, then chooses a per-track plan:
+
+- copy video only when it is AVC/H.264 Main Profile at Level <= 4.0, 1920×1080, approximately 25 fps;
+- copy audio only when it is AAC, 48 kHz, stereo;
+- compatible tracks are muxed directly without decoding/re-encoding;
+- incompatible tracks fall back independently to the physically validated WebCodecs settings.
+
+This yields three modes: `FAST REMUX`, `HYBRID`, and `TRANSCODE`. Mediabunny's conversion API prefers encoded-packet copying when the configuration permits it. Options such as bitrate, resizing, frame-rate conversion, and keyframe interval force transcoding, so v2.2 deliberately omits those options only for tracks judged compatible.
+
+Additional v2.2 tuning:
+
+- remembers the last selected VIO slot locally;
+- reports the selected conversion plan in the technical log;
+- reports approximate processing speed in multiples of realtime;
+- keeps XOR in-place to avoid a second full output buffer;
+- revokes previous result object URLs when a new source is selected;
+- bumps the application and Service Worker cache versions to avoid stale Mobile Safari assets.
+
+### v2.2 validation status
+
+The underlying v2/v2.1 transcoding path is already physically validated. The new **fast-remux and hybrid paths still require physical-player regression tests** using suitable already-compatible inputs. A failed fast-path test should not invalidate WebCodecs/Mediabunny; the application can simply tighten eligibility or disable copying for the affected track.
+
+## 2026-09-14 — v2.3 encoder-preset experiment
+
+v2.3 introduces user-selectable video encoder presets so conversion speed can be compared directly against physical-player compatibility without rebuilding the application:
+
+| Preset | Resolution | FPS | Video bitrate | GOP | Status |
+| --- | --- | ---: | ---: | ---: | --- |
+| Compatible | 1920x1080 | 25 | 1,984 kb/s | 1.2 s | Physical-player validated |
+| Fast | 1920x1080 | 25 | 1,400 kb/s | 2.0 s | Needs physical-player validation |
+| Experimental | 1280x720 | 25 | 1,000 kb/s | 2.0 s | Needs physical-player validation |
+
+Design rules:
+
+- Compatible preserves the v2.2 automatic packet-copy/remux fast path when the source already matches the validated AVC/AAC profile.
+- Fast and Experimental deliberately force video transcoding so their conversion times can be compared meaningfully.
+- Compatible AAC 48 kHz stereo audio is still copied in all modes to isolate video-encoding cost where possible.
+- The UI reports the selected preset, target parameters, elapsed time, and effective realtime speed.
+- Mediabunny's high-level Conversion API exposes bitrate, resolution, frame rate, keyframe interval, and hardware preference, but not WebCodecs latencyMode directly; therefore these presets only use supported, measurable controls.
+
+### Recommended v2.3 test procedure
+
+Use the same source file for all three modes and record:
+
+1. total conversion time;
+2. reported realtime multiplier;
+3. resulting `.vio` file size;
+4. whether the physical player lists the file;
+5. whether playback starts;
+6. whether playback remains stable through the whole file;
+7. audio sync and seeking behavior.
+
+If Fast is accepted, it is the leading candidate to replace Compatible as the normal transcode preset. If Experimental is also accepted and visual quality is adequate, consider making it a user-facing speed/size option rather than the default.
+
+
+## UI layout update (v2.3.1)
+The mobile interface is interaction-first. Source selection, target slot, encoding preset, Convert, progress, and result/save actions appear before any explanatory material. Device compatibility, encoding profile details, technical logs, and build/about information are placed after the workflow in collapsed `<details>` panels. This keeps the normal iPhone workflow short while retaining diagnostics when needed.

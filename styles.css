@@ -71,3 +71,43 @@ dl div { display: grid; grid-template-columns: 130px 1fr; gap: 12px; }
 dt { font-weight: 700; }
 dd { margin: 0; color: var(--muted); }
 @media (max-width: 520px) { dl div { grid-template-columns: 1fr; gap: 2px; } }
+
+
+/* v2.3.1 interaction-first layout */
+.hero-compact { align-items: center; margin-bottom: 10px; }
+.hero-compact h1 { font-size: clamp(30px, 7vw, 48px); }
+.workflow-card { margin-top: 8px; }
+.workflow-card > h2 { font-size: 24px; margin-bottom: 18px; }
+.workflow-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(150px, .7fr) minmax(180px, .9fr); gap: 18px; align-items: start; }
+.workflow-section { min-width: 0; }
+.workflow-label { display: block; font-weight: 700; margin-bottom: 8px; }
+.workflow-source { grid-row: span 1; }
+.convert-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+.convert-actions .primary { min-width: 180px; }
+.progress-block { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--border); }
+.progress-block .stage { margin-bottom: 0; }
+.info-panels { margin-top: 20px; }
+.collapsible { padding: 0; overflow: hidden; box-shadow: none; }
+.collapsible > summary { cursor: pointer; list-style: none; padding: 16px 20px; font-weight: 700; min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.collapsible > summary::-webkit-details-marker { display: none; }
+.collapsible > summary::after { content: "+"; font-size: 22px; line-height: 1; color: var(--muted); }
+.collapsible[open] > summary::after { content: "−"; }
+.collapsible[open] > summary { border-bottom: 1px solid var(--border); }
+.details-body { padding: 18px 20px 20px; }
+.details-body pre { margin: 0; }
+@media (max-width: 760px) {
+  .workflow-grid { grid-template-columns: 1fr 1fr; }
+  .workflow-source { grid-column: 1 / -1; }
+}
+@media (max-width: 520px) {
+  .app-shell { padding-left: 14px; padding-right: 14px; }
+  .hero-compact { flex-direction: row; align-items: center; }
+  .hero-compact .eyebrow { display: none; }
+  .hero-compact h1 { font-size: 30px; }
+  .badge { white-space: normal; text-align: center; max-width: 44%; }
+  .workflow-grid { grid-template-columns: 1fr; }
+  .workflow-source { grid-column: auto; }
+  .workflow-card { padding: 18px; }
+  .convert-actions > * { flex: 1 1 100%; width: 100%; }
+  .actions > * { flex: 1 1 100%; width: 100%; }
+}

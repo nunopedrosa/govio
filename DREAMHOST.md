@@ -60,3 +60,13 @@ The pinned version lives in `config.php`. When deliberately updating it:
 5. retest on the physical device.
 
 Do not silently float to `latest`; the target file format is unusual and regression testing matters.
+
+## v2.2 deployment note
+
+v2.2 changes the application and Service Worker cache identifiers. After `git pull`, Mobile Safari should receive the new build automatically, but during testing it is still useful to fully close/reopen the Home Screen app or Safari tab if an old UI persists.
+
+No new server dependency is introduced by the fast path. The existing self-hosted Mediabunny files remain sufficient.
+
+## v2.3 deployment note
+
+v2.3 changes only application/configuration files. Existing self-hosted Mediabunny assets can be retained. After `git pull` or uploading the new build, reload Safari so Service Worker cache `vio-converter-v8-encoder-presets` replaces the older cache.
