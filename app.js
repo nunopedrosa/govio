@@ -2,18 +2,17 @@
 
 const CONFIG = window.VIO_CONFIG ?? {};
 const PROFILE = CONFIG.conversion ?? {};
+const PLAYER = CONFIG.player ?? {};
 const XOR_KEY = CONFIG.xorKey ?? 0xA7;
-const PRESETS = PROFILE.presets ?? {};
 
 const els = {
   compatibility: document.querySelector('#compatibility'),
   offlineBadge: document.querySelector('#offlineBadge'),
   input: document.querySelector('#videoInput'),
   sourceInfo: document.querySelector('#sourceInfo'),
-  preview: document.querySelector('#preview'),
+  planInfo: document.querySelector('#planInfo'),
   slot: document.querySelector('#slot'),
-  preset: document.querySelector('#preset'),
-  presetInfo: document.querySelector('#presetInfo'),
+  slotFilename: document.querySelector('#slotFilename'),
   convert: document.querySelector('#convertButton'),
   cancel: document.querySelector('#cancelButton'),
   progress: document.querySelector('#progress'),
@@ -35,6 +34,8 @@ let cancelRequested = false;
 let resultFile = null;
 let resultUrl = null;
 let capabilitiesReady = false;
+let avcEncoderAvailable = false;
+let aacEncoderAvailable = false;
 
 for (const n of (CONFIG.slots ?? Array.from({ length: 15 }, (_, i) => String(i + 1).padStart(3, '0')))) {
   const option = document.createElement('option');
@@ -43,40 +44,16 @@ for (const n of (CONFIG.slots ?? Array.from({ length: 15 }, (_, i) => String(i +
   els.slot.append(option);
 }
 
-for (const [key, preset] of Object.entries(PRESETS)) {
-  const option = document.createElement('option');
-  option.value = key;
-  option.textContent = preset.label ?? key;
-  els.preset.append(option);
+function updateSlotFilename() {
+  els.slotFilename.textContent = `${els.slot.value}.vio`;
+  try { localStorage.setItem('vio.lastSlot', els.slot.value); } catch (_) {}
 }
-
-function selectedPreset() {
-  return PRESETS[els.preset.value] ?? PRESETS.control ?? Object.values(PRESETS)[0];
-}
-
-function updatePresetInfo() {
-  const p = selectedPreset();
-  const target = p.kind === 'remux'
-    ? 'Original resolution, profile, frame rate and bitrate are preserved.'
-    : `${p.width}×${p.height}, ${(p.video_bitrate / 1000000).toFixed(2)} Mb/s, ${PROFILE.fps ?? 25} fps, GOP ${p.gop_seconds.toFixed(1)} s.`;
-  els.presetInfo.textContent = `${p.description ?? ''} ${target}`.trim();
-  try { localStorage.setItem('vio.lastPreset', els.preset.value); } catch (_) {}
-}
-
-try {
-  const savedPreset = localStorage.getItem('vio.lastPreset');
-  if (savedPreset && [...els.preset.options].some(o => o.value === savedPreset)) els.preset.value = savedPreset;
-} catch (_) {}
-els.preset.addEventListener('change', updatePresetInfo);
-updatePresetInfo();
-
 try {
   const savedSlot = localStorage.getItem('vio.lastSlot');
   if (savedSlot && [...els.slot.options].some(o => o.value === savedSlot)) els.slot.value = savedSlot;
 } catch (_) {}
-els.slot.addEventListener('change', () => {
-  try { localStorage.setItem('vio.lastSlot', els.slot.value); } catch (_) {}
-});
+els.slot.addEventListener('change', updateSlotFilename);
+updateSlotFilename();
 
 function log(message) {
   const stamp = new Date().toLocaleTimeString();
@@ -145,9 +122,11 @@ async function checkCapabilities() {
       aac = await mb.canEncodeAudio('aac');
       log('Native AAC encoder unavailable; registered bundled AAC fallback encoder.');
     }
-    capabilityRow('H.264/AVC encoder', avc, 'Required for Control and Realtime tests');
-    capabilityRow('AAC encoder', aac, 'Needed only when source audio cannot be copied');
-    capabilitiesReady = Boolean(avc && aac);
+    avcEncoderAvailable = Boolean(avc);
+    aacEncoderAvailable = Boolean(aac);
+    capabilityRow('H.264/AVC encoder', avcEncoderAvailable, 'Used when a source needs video re-encoding');
+    capabilityRow('AAC encoder', aacEncoderAvailable, 'Used when source audio cannot be copied');
+    capabilitiesReady = true;
   } catch (err) {
     log(`Capability check failed: ${err.message}`);
     setStage(`Capability check failed: ${err.message}`);
@@ -192,6 +171,39 @@ async function inspectSelectedFile(file) {
   return { videoCodec, videoCodecString, audioCodec, width, height, channels, sampleRate, duration };
 }
 
+function automaticPlan(meta) {
+  const maxSide = Math.max(meta.width, meta.height);
+  const minSide = Math.min(meta.width, meta.height);
+  const withinResolution = maxSide <= (PLAYER.max_width ?? 1920) && minSide <= (PLAYER.max_height ?? 1080);
+  const videoCopy = meta.videoCodec === (PLAYER.direct_video_codec ?? 'avc') && withinResolution;
+  const audioCopy = meta.audioCodec === (PLAYER.direct_audio_codec ?? 'aac');
+  const direct = videoCopy && audioCopy;
+  return {
+    direct,
+    videoCopy,
+    audioCopy,
+    withinResolution,
+    mode: direct ? 'Fast remux' : 'Compatible conversion',
+    reason: direct
+      ? `H.264/AAC source is within the player's assumed ${PLAYER.max_width ?? 1920}×${PLAYER.max_height ?? 1080} resolution limit.`
+      : !withinResolution
+        ? `Source resolution ${meta.width}×${meta.height} exceeds the player's assumed ${PLAYER.max_width ?? 1920}×${PLAYER.max_height ?? 1080} limit.`
+        : meta.videoCodec !== (PLAYER.direct_video_codec ?? 'avc')
+          ? `Source video codec ${meta.videoCodec} must be converted to H.264/AVC.`
+          : `Source audio codec ${meta.audioCodec} must be converted to AAC.`
+  };
+}
+
+function renderPlan(meta) {
+  const plan = automaticPlan(meta);
+  els.planInfo.classList.remove('hidden', 'plan-fast', 'plan-transcode');
+  els.planInfo.classList.add(plan.direct ? 'plan-fast' : 'plan-transcode');
+  els.planInfo.innerHTML = plan.direct
+    ? `<strong>Fast remux</strong><br>No video or audio re-encoding is required. ${plan.reason}`
+    : `<strong>Conversion required</strong><br>${plan.reason} Only tracks that need conversion will be re-encoded; video above the player limit is reduced to the safe 1920×1080 profile.`;
+  return plan;
+}
+
 els.input.addEventListener('change', async () => {
   const file = els.input.files?.[0];
   if (!file) return;
@@ -202,62 +214,57 @@ els.input.addEventListener('change', async () => {
   if (resultUrl) { URL.revokeObjectURL(resultUrl); resultUrl = null; }
   els.convert.disabled = true;
   els.resultCard.classList.add('hidden');
+  els.planInfo.classList.add('hidden');
   setStage('Reading video metadata…', 0);
-  els.preview.pause?.();
-  els.preview.removeAttribute('src');
-  els.preview.load?.();
-  els.preview.classList.add('hidden');
 
   try {
     selectedMeta = await inspectSelectedFile(file);
     const elapsed = (performance.now() - started) / 1000;
     const durationText = Number.isFinite(selectedMeta.duration) ? ` · ${selectedMeta.duration.toFixed(1)} s` : '';
     els.sourceInfo.innerHTML = `<strong>${file.name}</strong><br>${humanBytes(file.size)}${durationText} · ${selectedMeta.width}×${selectedMeta.height} · video ${selectedMeta.videoCodec}${selectedMeta.videoCodecString ? ` (${selectedMeta.videoCodecString})` : ''} · audio ${selectedMeta.audioCodec}, ${selectedMeta.sampleRate} Hz, ${selectedMeta.channels} ch`;
-    log(`Source metadata ready in ${elapsed.toFixed(2)} s: ${selectedMeta.width}x${selectedMeta.height} ${selectedMeta.videoCodec}${selectedMeta.videoCodecString ? ` ${selectedMeta.videoCodecString}` : ''}; ${selectedMeta.audioCodec} ${selectedMeta.sampleRate} Hz ${selectedMeta.channels} ch.`);
-    els.convert.disabled = !capabilitiesReady;
-    setStage(capabilitiesReady ? 'Ready to convert.' : 'Source metadata is readable, but required output codecs are unavailable.', 0);
+    const plan = renderPlan(selectedMeta);
+    log(`Source metadata ready in ${elapsed.toFixed(2)} s: ${selectedMeta.width}x${selectedMeta.height} ${selectedMeta.videoCodec}${selectedMeta.videoCodecString ? ` ${selectedMeta.videoCodecString}` : ''}; ${selectedMeta.audioCodec} ${selectedMeta.sampleRate} Hz ${selectedMeta.channels} ch. Automatic plan=${plan.mode}.`);
+    const needsVideoEncoder = !plan.videoCopy;
+    const needsAudioEncoder = !plan.audioCopy;
+    const canRun = capabilitiesReady && (!needsVideoEncoder || avcEncoderAvailable) && (!needsAudioEncoder || aacEncoderAvailable);
+    els.convert.disabled = !canRun;
+    setStage(canRun ? `Ready — ${plan.mode}.` : 'This source requires an encoder that is unavailable in this browser.', 0);
   } catch (err) {
     const elapsed = (performance.now() - started) / 1000;
     els.sourceInfo.textContent = `${file.name} — ${err.message}`;
+    els.planInfo.classList.add('hidden');
     setStage(`Source not supported: ${err.message}`, 0);
     log(`Source inspection failed after ${elapsed.toFixed(2)} s: ${err.message}`);
   }
 });
 
-function isMainProfileAtMostLevel40(codecString) {
-  if (!codecString) return false;
-  const match = /^avc1\.([0-9a-f]{6})$/i.exec(codecString.trim());
-  if (!match) return false;
-  const profile = parseInt(match[1].slice(0, 2), 16);
-  const level = parseInt(match[1].slice(4, 6), 16);
-  return profile === 0x4d && level <= 0x28;
-}
-
-async function getTrackPlan() {
+async function getTracks() {
   const videoTrack = await sourceInput.getPrimaryVideoTrack();
   const audioTrack = await sourceInput.getPrimaryAudioTrack();
-  if (!videoTrack || !audioTrack) throw new Error('Primary video/audio tracks are unavailable. Please reselect the file.');
-  const [videoCodec, codecString, width, height, audioCodec, sampleRate, channels] = await Promise.all([
-    videoTrack.getCodec(), videoTrack.getCodecParameterString?.() ?? Promise.resolve(null),
-    videoTrack.getDisplayWidth(), videoTrack.getDisplayHeight(), audioTrack.getCodec(),
-    audioTrack.getSampleRate(), audioTrack.getNumberOfChannels()
-  ]);
-  const audioCopy = audioCodec === 'aac' && sampleRate === (PROFILE.audio_rate ?? 48000) && channels === (PROFILE.audio_channels ?? 2);
-  return { videoTrack, audioTrack, videoCodec, codecString, width, height, audioCodec, sampleRate, channels, audioCopy };
+  if (!videoTrack || !audioTrack) throw new Error('Primary video/audio tracks are unavailable.');
+  return { videoTrack, audioTrack };
 }
 
-function controlVideoOptions() {
-  const p = PRESETS.control;
+function safeVideoOptions() {
   return {
-    codec: 'avc', width: p.width, height: p.height, fit: 'contain', frameRate: PROFILE.fps ?? 25,
-    bitrate: p.video_bitrate, keyFrameInterval: p.gop_seconds,
-    hardwareAcceleration: 'prefer-hardware', forceTranscode: true
+    codec: 'avc',
+    width: PROFILE.width ?? 1920,
+    height: PROFILE.height ?? 1080,
+    fit: 'contain',
+    frameRate: PROFILE.fps ?? 25,
+    bitrate: PROFILE.video_bitrate ?? 1984000,
+    keyFrameInterval: PROFILE.gop_seconds ?? 1.2,
+    hardwareAcceleration: 'no-preference',
+    forceTranscode: true
   };
 }
-function transcodeAudioOptions() {
+
+function safeAudioOptions() {
   return {
-    codec: 'aac', bitrate: PROFILE.audio_bitrate ?? 128000,
-    sampleRate: PROFILE.audio_rate ?? 48000, numberOfChannels: PROFILE.audio_channels ?? 2,
+    codec: 'aac',
+    bitrate: PROFILE.audio_bitrate ?? 128000,
+    sampleRate: PROFILE.audio_rate ?? 48000,
+    numberOfChannels: PROFILE.audio_channels ?? 2,
     forceTranscode: true
   };
 }
@@ -271,99 +278,51 @@ function makeOutput(mb) {
   return { target, output };
 }
 
-async function runStandardConversion(mb, preset, plan, target, output, startedAt) {
-  const isRemux = preset.kind === 'remux';
-  if (isRemux && (plan.videoCodec !== 'avc' || plan.audioCodec !== 'aac')) {
-    throw new Error('Test A requires an H.264/AVC video track and AAC audio so both tracks can be copied unchanged.');
-  }
+async function runAutomaticConversion(mb, meta, target, output, startedAt) {
+  const plan = automaticPlan(meta);
+  await getTracks();
+  let videoOptions;
+  let audioOptions;
+  let copy;
+  let label;
 
-  const videoOptions = isRemux ? {} : controlVideoOptions();
-  const audioOptions = plan.audioCopy ? {} : transcodeAudioOptions();
-  currentConversion = await mb.Conversion.init({
-    input: sourceInput, output, tracks: 'primary', tags: {},
-    copy: isRemux ? { mode: 'forced', shiftTolerance: 0, boundaryPolicy: 'expand' } : { mode: 'preferred', shiftTolerance: 0, boundaryPolicy: 'expand' },
-    video: videoOptions,
-    audio: audioOptions
-  });
-  if (!currentConversion.isValid) {
-    const reasons = currentConversion.discardedTracks.map(x => x.reason).join(', ') || 'unknown reason';
-    throw new Error(`Conversion configuration is not valid (${reasons}).`);
+  if (plan.direct) {
+    videoOptions = {};
+    audioOptions = {};
+    copy = { mode: 'forced', shiftTolerance: 0, boundaryPolicy: 'expand' };
+    label = 'Fast remux';
+    log(`Automatic path: FAST REMUX. Copying ${meta.width}x${meta.height} AVC + AAC without re-encoding.`);
+  } else {
+    videoOptions = plan.videoCopy ? {} : safeVideoOptions();
+    const audioAlreadySafe = meta.audioCodec === 'aac' && meta.sampleRate === (PROFILE.audio_rate ?? 48000) && meta.channels === (PROFILE.audio_channels ?? 2);
+    audioOptions = plan.audioCopy && audioAlreadySafe ? {} : safeAudioOptions();
+    copy = { mode: 'preferred', shiftTolerance: 0, boundaryPolicy: 'expand' };
+    label = plan.videoCopy ? 'Compatible audio conversion' : '1080p compatible re-encode';
+    log(`Automatic path: COMPATIBLE CONVERSION. video=${plan.videoCopy ? 'copy AVC' : `encode ${PROFILE.width ?? 1920}x${PROFILE.height ?? 1080} AVC ${(PROFILE.video_bitrate ?? 1984000) / 1000000} Mb/s @ ${PROFILE.fps ?? 25} fps`}; audio=${plan.audioCopy && audioAlreadySafe ? 'copy AAC' : 'encode AAC'}.`);
   }
-  currentConversion.onProgress = (fraction, processedTime) => {
-    const elapsed = (performance.now() - startedAt) / 1000;
-    const speed = Number.isFinite(processedTime) && elapsed > 0.5 ? processedTime / elapsed : null;
-    const label = isRemux ? 'Test A: remuxing original tracks' : 'Control: compatible encode';
-    setStage(`${label}${Number.isFinite(processedTime) ? ` · ${processedTime.toFixed(1)} s processed` : ''}${speed ? ` · ${speed.toFixed(2)}× realtime` : ''}`, 2 + fraction * 93);
-  };
-  await currentConversion.execute();
-  return isRemux ? 'Test A — Original / Remux' : 'Control — Compatible';
-}
-
-async function runRealtimeConversion(mb, preset, plan, target, output, startedAt) {
-  const duration = selectedMeta?.duration;
-  const videoSink = new mb.VideoSampleSink(plan.videoTrack, { hardwareAcceleration: 'prefer-hardware' });
-  let actualEncoderConfig = null;
-  const videoSource = new mb.VideoSampleSource({
-    codec: 'avc',
-    quality: new mb.Quality({ bitrate: preset.video_bitrate }),
-    latencyMode: 'realtime',
-    hardwareAcceleration: 'prefer-hardware',
-    keyFrameInterval: preset.gop_seconds,
-    transform: {
-      width: preset.width,
-      height: preset.height,
-      fit: 'contain',
-      frameRate: PROFILE.fps ?? 25,
-      alpha: 'discard'
-    },
-    onEncoderConfig: config => {
-      actualEncoderConfig = config;
-      log(`WebCodecs encoder config: codec=${config.codec}; ${config.width}x${config.height}; bitrate=${config.bitrate ?? 'n/a'}; framerate=${config.framerate ?? 'n/a'}; hardwareAcceleration=${config.hardwareAcceleration ?? 'n/a'}; latencyMode=${config.latencyMode ?? 'n/a'}.`);
-    }
-  });
-  output.addVideoTrack(videoSource, { frameRate: PROFILE.fps ?? 25 });
 
   currentConversion = await mb.Conversion.init({
     input: sourceInput,
     output,
     tracks: 'primary',
-    video: { discard: true },
-    audio: plan.audioCopy ? {} : transcodeAudioOptions(),
-    copy: { mode: 'preferred', shiftTolerance: 0, boundaryPolicy: 'expand' },
-    composable: true,
-    showWarnings: false
+    tags: {},
+    copy,
+    video: videoOptions,
+    audio: audioOptions
   });
 
-  currentOutput = output;
-  await output.start();
-  let lastAudioPump = -1;
-  let lastTimestamp = 0;
-  try {
-    for await (const sample of videoSink.samples()) {
-      if (cancelRequested) throw new Error('Conversion canceled by user.');
-      lastTimestamp = Math.max(lastTimestamp, sample.timestamp ?? 0);
-      await videoSource.add(sample);
-      sample.close();
-
-      if (lastTimestamp - lastAudioPump >= 1.0) {
-        await currentConversion.execute({ until: lastTimestamp });
-        lastAudioPump = lastTimestamp;
-      }
-      const elapsed = (performance.now() - startedAt) / 1000;
-      const speed = elapsed > 0.5 ? lastTimestamp / elapsed : null;
-      const fraction = Number.isFinite(duration) && duration > 0 ? Math.min(1, lastTimestamp / duration) : 0;
-      setStage(`${preset.label} · ${lastTimestamp.toFixed(1)} s processed${speed ? ` · ${speed.toFixed(2)}× realtime` : ''}`, 2 + fraction * 91);
-    }
-    videoSource.close();
-    await currentConversion.execute();
-    await output.finalize();
-  } catch (err) {
-    try { videoSource.close(); } catch (_) {}
-    try { await output.cancel(); } catch (_) {}
-    throw err;
+  if (!currentConversion.isValid) {
+    const reasons = currentConversion.discardedTracks.map(x => x.reason).join(', ') || 'unknown reason';
+    throw new Error(`Conversion configuration is not valid (${reasons}).`);
   }
-  if (!actualEncoderConfig) log('Realtime encode completed, but Safari did not expose an encoder configuration callback.');
-  return preset.label;
+
+  currentConversion.onProgress = (fraction, processedTime) => {
+    const elapsed = (performance.now() - startedAt) / 1000;
+    const speed = Number.isFinite(processedTime) && elapsed > 0.5 ? processedTime / elapsed : null;
+    setStage(`${label}${Number.isFinite(processedTime) ? ` · ${processedTime.toFixed(1)} s processed` : ''}${speed ? ` · ${speed.toFixed(2)}× realtime` : ''}`, 2 + fraction * 93);
+  };
+  await currentConversion.execute();
+  return label;
 }
 
 async function xorAndPublish(target, modeLabel, startedAt) {
@@ -395,30 +354,19 @@ async function xorAndPublish(target, modeLabel, startedAt) {
 }
 
 async function convert() {
-  if (!selectedFile || !sourceInput) return;
+  if (!selectedFile || !sourceInput || !selectedMeta) return;
   const mb = getMb();
-  const preset = selectedPreset();
   cancelRequested = false;
   els.convert.disabled = true;
   els.cancel.classList.remove('hidden');
   els.resultCard.classList.add('hidden');
   const startedAt = performance.now();
   try {
-    const plan = await getTrackPlan();
-    log(`TEST START: ${preset.label}. Source=${plan.width}x${plan.height} ${plan.videoCodec}${plan.codecString ? ` ${plan.codecString}` : ''}; audio=${plan.audioCodec} ${plan.sampleRate} Hz ${plan.channels} ch; duration=${Number.isFinite(selectedMeta?.duration) ? selectedMeta.duration.toFixed(2) + ' s' : 'unknown'}.`);
-    if (preset.kind === 'remux') {
-      log('Test A hypothesis: the player may accept the iPhone H.264/AAC stream without re-encoding. This preserves original resolution/profile/frame rate/bitrate.');
-    } else if (preset.kind === 'realtime') {
-      log(`${preset.label} hypothesis: WebCodecs realtime latency + prefer-hardware may improve 4K downscale/re-encode speed. Target=${preset.width}x${preset.height} ${(preset.video_bitrate / 1000000).toFixed(2)} Mb/s, ${PROFILE.fps ?? 25} fps, GOP ${preset.gop_seconds}s.`);
-    } else {
-      log('Control hypothesis: reproduce the already validated player-compatible profile.');
-    }
-
+    const plan = automaticPlan(selectedMeta);
+    log(`AUTOMATIC START: ${selectedMeta.width}x${selectedMeta.height} ${selectedMeta.videoCodec}${selectedMeta.videoCodecString ? ` ${selectedMeta.videoCodecString}` : ''}; audio=${selectedMeta.audioCodec} ${selectedMeta.sampleRate} Hz ${selectedMeta.channels} ch; plan=${plan.mode}; duration=${Number.isFinite(selectedMeta.duration) ? selectedMeta.duration.toFixed(2) + ' s' : 'unknown'}.`);
     const { target, output } = makeOutput(mb);
     currentOutput = output;
-    const modeLabel = preset.kind === 'realtime'
-      ? await runRealtimeConversion(mb, preset, plan, target, output, startedAt)
-      : await runStandardConversion(mb, preset, plan, target, output, startedAt);
+    const modeLabel = await runAutomaticConversion(mb, selectedMeta, target, output, startedAt);
     await xorAndPublish(target, modeLabel, startedAt);
   } catch (err) {
     if (cancelRequested || /canceled/i.test(err.message ?? '')) {
@@ -432,7 +380,12 @@ async function convert() {
     currentConversion = null;
     currentOutput = null;
     els.cancel.classList.add('hidden');
-    els.convert.disabled = !selectedFile || !capabilitiesReady;
+    if (selectedMeta) {
+      const plan = automaticPlan(selectedMeta);
+      els.convert.disabled = !(capabilitiesReady && (plan.videoCopy || avcEncoderAvailable) && (plan.audioCopy || aacEncoderAvailable));
+    } else {
+      els.convert.disabled = true;
+    }
   }
 }
 

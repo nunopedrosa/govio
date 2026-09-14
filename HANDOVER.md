@@ -1,10 +1,10 @@
 # VIO Converter — Technical handover
 
-**Current application generation:** v2.0.0-webcodecs  
+**Current application generation:** v3.0.0-automatic  
 **Hosting target:** DreamHost shared hosting / PHP  
 **Primary client target:** recent iPhone/Safari, also desktop Chrome/Safari  
 **Design goal:** local/offline video conversion without App Store installation or server upload
-**v2 physical validation:** PASSED on 2026-09-14 — browser-generated Mediabunny/WebCodecs VIO played successfully in the target hardware player
+**Production status:** PASSED on 2026-09-14 — local Mediabunny/WebCodecs conversion, fast remux, SD-card saving, and physical-player playback have all been validated
 
 ---
 
@@ -522,3 +522,142 @@ Do not promote Test A/B/C to defaults until the physical player has been tested 
 ## v2.4.1 composable conversion fix
 
 Tests B/C previously passed `tags: {}` to a Mediabunny conversion configured with `composable: true`. Mediabunny disallows conversion-level metadata in composable mode because the caller owns the output lifecycle. v2.4.1 removes that illegal option; output metadata is intentionally left unset for these experimental paths.
+
+
+---
+
+# 2026-09-14 — Physical-player compatibility boundary and v3 production decision
+
+The v2.4 experimental branch established a much simpler compatibility rule than the original reverse-engineered encoding profile suggested.
+
+## Confirmed physical tests
+
+### 4K iPhone AVC remux — FAILS on player
+
+An iPhone 14 Pro 4K recording was H.264/AVC High profile (`avc1.640033`, Level 5.1) at 3840x2160 with AAC 48 kHz stereo. Test A copied the original encoded tracks without re-encoding, muxed them into MP4, applied XOR `0xA7`, and produced a VIO file.
+
+The VIO was decoded back to MP4 and independently verified: the MP4 was valid and playable. The target hardware player nevertheless could not play it.
+
+**Conclusion:** the Test A implementation was correct; the player limitation was the 4K source itself.
+
+### 1080p iPhone AVC remux at ~30 fps — PASSES
+
+A remuxed file reported approximately:
+
+- H.264 High / `avc1`
+- 1920x1080
+- ~29.97 fps
+- ~14.99 Mb/s video
+- AAC-LC 48 kHz stereo
+
+The physical player played it successfully.
+
+### 1080p iPhone AVC remux at ~60 fps — PASSES
+
+A remuxed file reported approximately:
+
+- H.264 High / `avc1`
+- 1920x1080
+- ~59.94 fps
+- ~22.44 Mb/s video
+- AAC-LC 48 kHz stereo
+
+The physical player also played it successfully.
+
+**Key conclusion:** the player's practical restriction is primarily resolution. It is substantially more tolerant of H.264 profile, frame rate and bitrate than the original card's 1080p25 Main@4.0 recordings suggested.
+
+## Realtime re-encoding experiments
+
+Using the same 4K iPhone source:
+
+- Test B — 1080p Realtime: approximately **0.18x realtime**.
+- Test C — 720p Realtime: approximately **0.27x realtime**.
+
+The 720p target was about 50% faster, but both were too slow for a pleasant normal workflow. `latencyMode='realtime'` and `hardwareAcceleration='prefer-hardware'` did not solve the dominant cost of decoding/scaling a 4K source through Safari/WebCodecs.
+
+These measurements are retained for engineering reference but the realtime Test B/Test C controls are **not** exposed in the production UI.
+
+## Production assumption
+
+Treat the target player's maximum supported video resolution as **1920x1080**.
+
+For orientation handling, v3 treats a video as within the limit when:
+
+```text
+max(width, height) <= 1920
+min(width, height) <= 1080
+```
+
+This permits portrait material with the same pixel dimensions without hard-coding landscape orientation.
+
+## v3 Automatic production workflow
+
+The user no longer chooses experimental encoder modes.
+
+After a source file is selected, v3 performs only lightweight metadata inspection and automatically decides:
+
+### FAST REMUX
+
+Use encoded-packet copy when all are true:
+
+- video codec is H.264/AVC;
+- audio codec is AAC;
+- resolution is within the assumed 1920x1080 player limit.
+
+No video or audio re-encoding is performed. Source H.264 profile, level, bitrate and frame rate are preserved. This is intentional because physical tests proved 1080p High-profile recordings at both ~30 and ~60 fps work in the player.
+
+### RE-ENCODE
+
+Re-encode when:
+
+- source resolution exceeds the player limit; or
+- video is not H.264/AVC; or
+- audio is not AAC.
+
+Safe output profile:
+
+- H.264/AVC
+- 1920x1080
+- 25 fps
+- ~1.984 Mb/s
+- GOP 1.2 s
+- AAC-LC 48 kHz stereo, ~128 kb/s when audio conversion is required
+
+If source audio is already AAC 48 kHz stereo, v3 copies it while re-encoding only the video.
+
+After MP4 creation, the whole MP4 buffer is XORed in place with `0xA7` and saved as `NNN.vio`.
+
+## Selection performance rule
+
+Do **not** perform `canDecode()` checks, packet-statistics scans, preview loading, or full-file reads immediately after file selection. Those experiments caused multi-minute waits for longer iPhone assets.
+
+v3 selection remains metadata-only through Mediabunny `BlobSource` with a small cache. Decoder/encoder work starts only after the user presses Convert.
+
+## User-facing UI decision
+
+Experimental controls Test A/Test B/Test C and encoder preset selectors are removed from the production interface.
+
+The main workflow is now:
+
+```text
+Select source video
+      -> app displays Fast remux OR Re-encoding required
+Choose target slot
+      -> Convert
+      -> Share / Save NNN.vio
+```
+
+Compatibility information, technical logs and the explanation of Automatic mode remain in collapsed panels after the main workflow.
+
+## What remains worth improving
+
+1. Benchmark the normal high-level 4K -> 1080p conversion path on newer iPhones and future Safari/WebCodecs versions.
+2. Consider an optional server/native conversion path only if users frequently need to convert 4K footage and local performance remains unacceptable.
+3. Continue testing less common <=1080p H.264/AAC inputs (different profiles, bit depths, unusual audio parameters) and tighten fast-remux eligibility only if a real player incompatibility is found.
+4. Add friendly warnings recommending iPhone recording at 1080p for near-instant remux conversion when appropriate.
+
+The current production rule should remain simple unless physical testing disproves it: **H.264 + AAC at <=1080p -> remux; otherwise -> re-encode.**
+
+
+### v3.0.1 visual identity
+Added the orange kids-camera artwork to the page header, PWA/home-screen icons, Apple touch icon, and browser favicons. Service-worker cache bumped to ensure installed/mobile clients refresh the assets.

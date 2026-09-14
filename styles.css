@@ -111,3 +111,22 @@ dd { margin: 0; color: var(--muted); }
   .convert-actions > * { flex: 1 1 100%; width: 100%; }
   .actions > * { flex: 1 1 100%; width: 100%; }
 }
+
+/* v3 automatic production workflow */
+.workflow-grid-auto { grid-template-columns: minmax(0, 1.7fr) minmax(150px, .65fr); }
+.plan-info { margin-top: 14px; padding: 12px 14px; border-radius: 12px; line-height: 1.45; border: 1px solid var(--border); }
+.plan-fast { background: var(--ok-bg); color: var(--ok-text); }
+.plan-transcode { background: var(--warn-bg); color: var(--warn-text); }
+@media (max-width: 760px) {
+  .workflow-grid-auto { grid-template-columns: 1fr; }
+  .workflow-grid-auto .workflow-source { grid-column: auto; }
+}
+
+
+/* v3.0.1 orange camera identity */
+.brand-lockup { display:flex; align-items:center; gap:0.85rem; min-width:0; }
+.brand-camera { width:64px; height:78px; object-fit:cover; object-position:center; border-radius:14px; flex:0 0 auto; }
+@media (max-width: 520px) {
+  .brand-camera { width:52px; height:64px; border-radius:12px; }
+  .brand-lockup { gap:0.65rem; }
+}

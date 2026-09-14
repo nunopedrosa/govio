@@ -26,7 +26,7 @@ foreach ($files as $file) {
         'http' => [
             'follow_location' => 1,
             'timeout' => 180,
-            'user_agent' => 'VIO-Converter-Installer/2.0',
+            'user_agent' => 'VIO-Converter-Installer/3.0',
         ],
         'ssl' => [
             'verify_peer' => true,

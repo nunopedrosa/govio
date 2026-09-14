@@ -1,13 +1,18 @@
 'use strict';
 
-const CACHE_NAME = 'vio-converter-v2.4.1-realtime-fix';
+const CACHE_NAME = 'vio-converter-v3.0.1-orange-icons';
 const APP_SHELL = [
   './',
   './manifest.webmanifest',
-  './styles.css?v=2.4.0-realtime-tests',
-  './app.js?v=2.4.0-realtime-tests',
+  './styles.css?v=3.0.1-orange-icons',
+  './app.js?v=3.0.1-orange-icons',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './icons/apple-touch-icon.png',
+  './icons/favicon-32.png',
+  './icons/favicon-16.png',
+  './icons/favicon.ico',
+  './icons/camera-orange.png',
   './vendor/mediabunny/mediabunny.min.cjs',
   './vendor/mediabunny/mediabunny-aac-encoder.min.js'
 ];

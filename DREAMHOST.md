@@ -1,83 +1,51 @@
-# DreamHost deployment — VIO Converter v2
+# DreamHost deployment — VIO Converter v3
 
-## Requirements
+The application is PHP-served but performs video conversion locally in the browser. DreamHost does not transcode or receive the selected videos.
 
-- Ordinary DreamHost PHP hosting.
-- HTTPS enabled for the domain/subdomain.
-- SSH access is useful for the one-time vendor download.
-- No Python, Node.js, FFmpeg binary, database, cron job or server-side video processing is required.
+## Initial deployment
 
-## Deploy
-
-1. Upload all project files.
-2. SSH to the site directory.
-3. Run:
+From the DreamHost SSH account, in the `vio.trekm.com` document root:
 
 ```bash
+git pull origin main
 php tools/fetch_mediabunny.php
 ```
 
-4. Verify:
+Then verify:
 
 ```text
-https://your-domain/health.php
+https://vio.trekm.com/health.php
 ```
 
-Expected important field:
+Expected key fields:
 
 ```json
-"mediabunny_vendor_ready": true
+{
+  "ok": true,
+  "engine": "WebCodecs/Mediabunny",
+  "mediabunny_vendor_ready": true
+}
 ```
 
-5. Open the main site in Safari/Chrome.
-6. On iPhone, optionally use **Add to Home Screen** after the first successful online load.
-7. Reload once after the service worker is installed; the app and local vendor JS are then available offline.
+## Subsequent deployments
 
-## Runtime architecture
+Normally:
 
-PHP only renders configuration and static application HTML. Conversion runs locally:
-
-```text
-video file
-  -> Mediabunny demuxer
-  -> browser WebCodecs decode
-  -> browser WebCodecs AVC/AAC encode
-  -> Mediabunny MP4 muxer
-  -> XOR 0xA7 in JavaScript
-  -> NNN.vio
+```bash
+cd ~/vio.trekm.com
+git pull origin main
 ```
 
-The source video is never POSTed to DreamHost.
+Run `php tools/fetch_mediabunny.php` again only when vendor assets are missing or the pinned Mediabunny version changes.
 
-## Updating Mediabunny
+## Browser cache / Service Worker
 
-The pinned version lives in `config.php`. When deliberately updating it:
+v3 uses a new application and Service Worker cache version (`3.0.0-automatic`). If an iPhone appears to show the previous experimental UI, reload the page once online so the new Service Worker can activate. Closing/reopening the Home Screen web app can also help after an update.
 
-1. change `mediabunny.version`;
-2. delete the two files under `vendor/mediabunny/`;
-3. run `php tools/fetch_mediabunny.php`;
-4. increment `app_version` so clients receive a new service-worker/app cache;
-5. retest on the physical device.
+## MIME types
 
-Do not silently float to `latest`; the target file format is unusual and regression testing matters.
-
-## v2.2 deployment note
-
-v2.2 changes the application and Service Worker cache identifiers. After `git pull`, Mobile Safari should receive the new build automatically, but during testing it is still useful to fully close/reopen the Home Screen app or Safari tab if an old UI persists.
-
-No new server dependency is introduced by the fast path. The existing self-hosted Mediabunny files remain sufficient.
-
-## v2.3 deployment note
-
-v2.3 changes only application/configuration files. Existing self-hosted Mediabunny assets can be retained. After `git pull` or uploading the new build, reload Safari so Service Worker cache `vio-converter-v8-encoder-presets` replaces the older cache.
-
-## v2.4 deployment note
-
-v2.4 changes the Service Worker cache name. After `git pull`, reload the site on iPhone. If Safari continues to show an older UI, close/reopen the PWA or clear the site's cached website data during development.
-
-No new server-side dependency is required; the existing self-hosted Mediabunny 1.56.2 assets are reused.
+The included `.htaccess` explicitly serves `.cjs` files as JavaScript. This is required because Safari can refuse to execute a `.cjs` file when `X-Content-Type-Options: nosniff` is active and the server supplies a generic binary MIME type.
 
 
-## v2.4.1 composable conversion fix
-
-Tests B/C previously passed `tags: {}` to a Mediabunny conversion configured with `composable: true`. Mediabunny disallows conversion-level metadata in composable mode because the caller owns the output lifecycle. v2.4.1 removes that illegal option; output metadata is intentionally left unset for these experimental paths.
+### v3.0.1 visual identity
+Added the orange kids-camera artwork to the page header, PWA/home-screen icons, Apple touch icon, and browser favicons. Service-worker cache bumped to ensure installed/mobile clients refresh the assets.
