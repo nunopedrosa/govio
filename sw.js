@@ -1,11 +1,12 @@
 'use strict';
 
-const CACHE_NAME = 'vio-converter-v3.0.1-orange-icons';
+const CACHE_NAME = 'vio-converter-v3.0.2-controls';
 const APP_SHELL = [
+  './shared-controls.css', './shared-icons.svg','./shared-chevron.svg',
   './',
   './manifest.webmanifest',
-  './styles.css?v=3.0.1-orange-icons',
-  './app.js?v=3.0.1-orange-icons',
+  './styles.css?v=3.0.2-controls',
+  './app.js?v=3.0.2-controls',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/apple-touch-icon.png',

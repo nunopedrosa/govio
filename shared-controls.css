@@ -1,0 +1,31 @@
+/* BaseCentral controls 1.0.0 — local, screen-only; app palettes stay app-owned. */
+@media screen {
+  :root { --pwa-control-radius:2px; --pwa-control-height:44px; --pwa-control-gap:8px; }
+  .pwa-control:not([hidden]) {
+    box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center;
+    vertical-align:top; min-width:44px; min-height:var(--pwa-control-height); height:auto;
+    padding:4px 8px; border-width:1px; border-style:solid; border-radius:var(--pwa-control-radius);
+    font-family:inherit; line-height:1.3; text-align:center; white-space:normal;
+    max-width:100%; overflow-wrap:break-word; flex-shrink:0; cursor:pointer;
+  }
+  .pwa-control[hidden] { display:none!important; }
+  .pwa-control:focus { outline:2px solid var(--pwa-focus,#376d9e); outline-offset:2px; }
+  .pwa-control:active { transform:none; }
+  .pwa-control:disabled,.pwa-control[aria-disabled="true"] { cursor:default; opacity:.5; }
+  .pwa-control[aria-busy="true"] { cursor:progress; }
+  .pwa-control.pwa-icon-control { width:44px; padding:4px; }
+  .pwa-icon { display:inline-block; width:20px; height:20px; min-width:20px; flex:none; vertical-align:middle; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; pointer-events:none; }
+  .pwa-control .pwa-icon { margin:0; }
+  .pwa-control .pwa-icon:not(:only-child) { margin-right:6px; }
+  select.pwa-control { display:inline-block; -webkit-appearance:none; appearance:none; text-align:left; padding:4px 30px 4px 8px; min-height:44px; height:44px;
+    background-image:url("shared-chevron.svg");background-repeat:no-repeat;background-size:16px;background-position:right 8px center; }
+  .pwa-actions { display:flex; flex-wrap:wrap; align-items:flex-start!important; margin:-4px; }
+  .pwa-actions > * { margin:4px; }
+  .pwa-control-primary { background:var(--pwa-accent,#234d68); color:var(--pwa-on-accent,#fff); border-color:var(--pwa-accent,#234d68); }
+  .pwa-control-secondary { background:var(--pwa-surface,#fff); color:var(--pwa-ink,#253830); border-color:var(--pwa-border,#9cb0bc); }
+  .pwa-control-quiet { background:transparent; color:inherit; border-color:transparent; }
+  .pwa-control-danger { background:var(--pwa-danger-surface,#fff2f0); color:var(--pwa-danger,#9b3028); border-color:currentColor; }
+  .pwa-control[aria-pressed="true"] { box-shadow:inset 0 0 0 1px currentColor; }
+  @media (prefers-reduced-motion:reduce) { .pwa-control { transition:none; animation:none; } }
+  @media (forced-colors:active) { .pwa-control:focus { outline-color:Highlight; } }
+}

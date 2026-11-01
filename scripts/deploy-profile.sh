@@ -1,0 +1,27 @@
+# App-owned publication contract; common engine: BaseCentral deploy 1.0.0.
+APP_ID=govio
+SOURCE_SUBDIR=.
+DEFAULT_DESTINATION="${DEPLOY_SITE:-$HOME/vio.trekm.com}"
+DEPLOY_URL=https://vio.trekm.com
+PUBLIC_FILES=$(cat <<'PUBLIC_FILES'
+app.js
+config.php
+health.php
+icons/apple-touch-icon.png
+icons/camera-orange.png
+icons/favicon-16.png
+icons/favicon-32.png
+icons/favicon.ico
+icons/icon-192.png
+icons/icon-512.png
+index.php
+manifest.webmanifest
+shared-chevron.svg
+shared-controls.css
+shared-icons.svg
+styles.css
+sw.js
+vendor/mediabunny/mediabunny-aac-encoder.min.js
+vendor/mediabunny/mediabunny.min.cjs
+PUBLIC_FILES
+)

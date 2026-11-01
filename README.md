@@ -78,3 +78,7 @@ See `HANDOVER.md` for the full reverse-engineering history, physical-player vali
 
 ### v3.0.1 visual identity
 Added the orange kids-camera artwork to the page header, PWA/home-screen icons, Apple touch icon, and browser favicons. Service-worker cache bumped to ensure installed/mobile clients refresh the assets.
+
+## Shared deployment command (2026-11-01)
+
+See [the current deployment contract](docs/SHARED_DEPLOYMENT.md) and `scripts/deploy-profile.sh`. This supersedes older script flags, SSH-only wrappers and broad deletion instructions below/above; hosting coordinates and app-specific private/release requirements still apply. No deployment is authorized by source changes.

@@ -130,3 +130,7 @@ dd { margin: 0; color: var(--muted); }
   .brand-camera { width:52px; height:64px; border-radius:12px; }
   .brand-lockup { gap:0.65rem; }
 }
+
+/* Shared controls 1.0.0: app-owned screen adapters. */
+@media screen {
+}

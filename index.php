@@ -39,6 +39,7 @@ header('Referrer-Policy: no-referrer');
   <script defer src="<?= htmlspecialchars($config['mediabunny']['main'], ENT_QUOTES, 'UTF-8') ?>"></script>
   <script defer src="<?= htmlspecialchars($config['mediabunny']['aac_encoder'], ENT_QUOTES, 'UTF-8') ?>"></script>
   <script defer src="./app.js?v=<?= rawurlencode($config['app_version']) ?>"></script>
+<link rel="stylesheet" href="shared-controls.css">
 </head>
 <body>
   <main class="app-shell">
@@ -68,14 +69,14 @@ header('Referrer-Policy: no-referrer');
 
         <div class="workflow-section">
           <label class="workflow-label" for="slot">2. Target slot</label>
-          <select id="slot"></select>
+          <select id="slot" class="pwa-control"></select>
           <p class="hint">The result will be named <span id="slotFilename">001.vio</span>.</p>
         </div>
       </div>
 
       <div class="convert-actions">
-        <button id="convertButton" class="primary" disabled>Convert to VIO</button>
-        <button id="cancelButton" class="secondary hidden">Cancel</button>
+        <button id="convertButton" class="primary pwa-control" disabled>Convert to VIO</button>
+        <button id="cancelButton" class="secondary hidden pwa-control">Cancel</button>
       </div>
 
       <div class="progress-block">
@@ -92,7 +93,7 @@ header('Referrer-Policy: no-referrer');
       <h2>Save the result</h2>
       <p id="resultSummary"></p>
       <div class="actions">
-        <button id="shareButton" class="primary">Share / Save</button>
+        <button id="shareButton" class="primary pwa-control">Share / Save</button>
         <a id="downloadLink" class="button-link secondary" download>Download file</a>
       </div>
       <p class="hint">On iPhone/iPad, save the file into the SD card's <code>01</code> folder through the system share/save sheet.</p>
