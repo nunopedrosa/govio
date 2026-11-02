@@ -1,12 +1,12 @@
 'use strict';
 
-const CACHE_NAME = 'vio-converter-v3.0.2-controls';
+const CACHE_NAME = 'vio-converter-v3.0.3-vendor';
 const APP_SHELL = [
   './shared-controls.css', './shared-icons.svg','./shared-chevron.svg',
   './',
   './manifest.webmanifest',
-  './styles.css?v=3.0.2-controls',
-  './app.js?v=3.0.2-controls',
+  './styles.css?v=3.0.3-vendor',
+  './app.js?v=3.0.3-vendor',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/apple-touch-icon.png',
@@ -14,6 +14,8 @@ const APP_SHELL = [
   './icons/favicon-16.png',
   './icons/favicon.ico',
   './icons/camera-orange.png',
+  './vendor/mediabunny/LICENSE-MPL-2.0.txt',
+  './vendor/mediabunny/NOTICE.txt',
   './vendor/mediabunny/mediabunny.min.cjs',
   './vendor/mediabunny/mediabunny-aac-encoder.min.js'
 ];

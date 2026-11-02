@@ -1,0 +1,9 @@
+Mediabunny and @mediabunny/aac-encoder 1.56.2
+Copyright (c) 2026-present, Vanilagy and contributors
+Unmodified official release bundles, distributed under MPL-2.0.
+License: LICENSE-MPL-2.0.txt
+Source and build instructions: https://github.com/Vanilagy/mediabunny/tree/v1.56.2
+Release: https://github.com/Vanilagy/mediabunny/releases/tag/v1.56.2
+AAC extension source: https://github.com/Vanilagy/mediabunny/tree/v1.56.2/packages/aac-encoder
+SHA-256 and byte lengths are pinned in tools/mediabunny-lock.json in the source repository.
+The runtime does not contact a CDN.

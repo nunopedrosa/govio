@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 return [
     'app_name' => 'VIO Converter',
-    'app_version' => '3.0.2-controls',
+    'app_version' => '3.0.3-vendor',
     'slots' => range(1, 15),
     'xor_key' => 0xA7,
     'player' => [

@@ -21,7 +21,12 @@ shared-controls.css
 shared-icons.svg
 styles.css
 sw.js
+vendor/mediabunny/LICENSE-MPL-2.0.txt
+vendor/mediabunny/NOTICE.txt
 vendor/mediabunny/mediabunny-aac-encoder.min.js
 vendor/mediabunny/mediabunny.min.cjs
 PUBLIC_FILES
 )
+
+# Install the reviewed template only when the host has no .htaccess; preserve custom headers.
+HEADER_TEMPLATE=.htaccess

@@ -1,3 +1,5 @@
+> Deployment correction, 2026-11-02: the historical vendor-install/in-webroot instructions below are superseded by README.md and DREAMHOST.md. Version 3.0.3-vendor includes checksum-pinned Mediabunny bundles in Git; deploy from a private clean checkout with the shared script. Existing webroot .htaccess is preserved and needs manual review for AddType application/javascript .cjs. Historical physical-player results and Automatic conversion decisions remain unchanged.
+
 # VIO Converter — Technical handover
 
 **Current application generation:** v3.0.0-automatic  

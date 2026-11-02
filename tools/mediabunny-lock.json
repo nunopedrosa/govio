@@ -1,0 +1,14 @@
+{
+  "version": "1.56.2",
+  "release": "https://github.com/Vanilagy/mediabunny/releases/tag/v1.56.2",
+  "files": {
+    "mediabunny.min.cjs": {
+      "size": 673467,
+      "sha256": "9eb2e1dfc8120fac3c458fd6eafd37e4b00d99486ef7dbcdd64634497aab98bc"
+    },
+    "mediabunny-aac-encoder.min.js": {
+      "size": 992984,
+      "sha256": "afd34e0588623bcaa528a43a2d503b6678af5271c5d7442ecc5cfcd58d54749f"
+    }
+  }
+}

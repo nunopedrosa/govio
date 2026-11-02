@@ -1,51 +1,40 @@
-# DreamHost deployment — VIO Converter v3
+# DreamHost deployment — VIO Converter
 
-The application is PHP-served but performs video conversion locally in the browser. DreamHost does not transcode or receive the selected videos.
+Current profile URL: https://vio.basecentral.link. Keep the Git checkout outside the public webroot; the former in-webroot clone and server vendor-installer procedure is superseded. DreamHost serves PHP only; no user videos are uploaded or transcoded there.
 
-## Initial deployment
+## Publish
 
-From the DreamHost SSH account, in the `vio.trekm.com` document root:
-
-```bash
-git pull origin main
-php tools/fetch_mediabunny.php
-```
-
-Then verify:
-
-```text
-https://vio.trekm.com/health.php
-```
-
-Expected key fields:
-
-```json
-{
-  "ok": true,
-  "engine": "WebCodecs/Mediabunny",
-  "mediabunny_vendor_ready": true
-}
-```
-
-## Subsequent deployments
-
-Normally:
+Commit and push the prepared app files, including both pinned vendor bundles, from development. On the hosting account, in the dedicated clean checkout:
 
 ```bash
-cd ~/vio.trekm.com
-git pull origin main
+git pull --ff-only
+bash scripts/deploy.sh --dry-run
+bash scripts/deploy.sh --verify
 ```
 
-Run `php tools/fetch_mediabunny.php` again only when vendor assets are missing or the pinned Mediabunny version changes.
+Default destination: `$HOME/vio.basecentral.link`. To use another existing public directory, pass its absolute path to both commands or set DEPLOY_SITE. The normal deploy fetches/pulls, enforces a clean tracked checkout and publishes only the profile allowlist. It does not build/download dependencies, reset/clean/stash, push, or prune unrelated public files.
 
-## Browser cache / Service Worker
+## Media library and headers
 
-v3 uses a new application and Service Worker cache version (`3.0.0-automatic`). If an iPhone appears to show the previous experimental UI, reload the page once online so the new Service Worker can activate. Closing/reopening the Home Screen web app can also help after an update.
+Mediabunny 1.56.2 files are part of Git and deploy with the app. Do not run tools/fetch_mediabunny.php in the server checkout as a deployment step: untracked or modified vendor files make deployment fail. The fetch script is for reviewed development preparation only; --check is a read-only checksum check.
 
-## MIME types
+A missing .htaccess is initialized from the reviewed root template. Existing host headers are preserved. **If your webroot already has .htaccess, review it and add the following inside its mod_mime block if absent:**
 
-The included `.htaccess` explicitly serves `.cjs` files as JavaScript. This is required because Safari can refuse to execute a `.cjs` file when `X-Content-Type-Options: nosniff` is active and the server supplies a generic binary MIME type.
+```apache
+AddType application/javascript .cjs
+```
 
+The original header file did not declare .cjs, so a preserved older copy may still need this correction. Do not replace unrelated custom host settings.
 
-### v3.0.1 visual identity
-Added the orange kids-camera artwork to the page header, PWA/home-screen icons, Apple touch icon, and browser favicons. Service-worker cache bumped to ensure installed/mobile clients refresh the assets.
+After deployment:
+
+```bash
+curl --fail https://vio.basecentral.link/health.php
+curl --head https://vio.basecentral.link/vendor/mediabunny/mediabunny.min.cjs
+```
+
+Expect mediabunny_vendor_ready=true and mediabunny_version=1.56.2. Both bundle sizes must be nonzero; main CJS Content-Type must be JavaScript, especially with nosniff. The common --verify check only establishes a successful root HTTP response. Test actual app/conversion separately.
+
+## Cache and scope
+
+App/config and worker markers are 3.0.3-vendor. The worker includes the bundled files and licence/notice in the offline shell. This fix preserves the existing worker activation policy and conversion rules; it is not a broader browser-compatibility or update-policy migration. No Node or Python runtime is required on the host. The old vio.trekm.com coordinates and 3.0.0 instructions are historical.

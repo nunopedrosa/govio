@@ -26,21 +26,34 @@ The application therefore treats 1920×1080 as the maximum supported player reso
 
 ## Deployment on DreamHost
 
-Clone/pull the repository into the document root for `vio.trekm.com`, then install the self-hosted Mediabunny browser files:
+Keep the Govio Git checkout outside the public web directory. The shared deployment profile targets `https://vio.basecentral.link` and defaults to `$HOME/vio.basecentral.link` (override with `DEPLOY_SITE` or an absolute destination argument). The old `vio.trekm.com` hosting name is historical.
+
+The pinned Mediabunny 1.56.2 browser bundles, licence and notice are now **committed application assets**, not files installed on the host after deployment. Normal deployment needs no vendor download or build. From the server checkout:
 
 ```bash
-php tools/fetch_mediabunny.php
+git pull --ff-only
+bash scripts/deploy.sh --dry-run
+bash scripts/deploy.sh --verify
 ```
 
-Verify deployment with:
+The checkout must be clean and track its upstream. Deploy fetches/pulls normally, checks that every published asset is tracked, stages the reviewed public inventory and preserves unrelated host files. If the engine/profile changes during pull, review and rerun. Commit/push prepared changes on the development machine before deploying.
 
-```text
-https://vio.trekm.com/health.php
+The deployment regression came from listing the two libraries as required public files while only `vendor/mediabunny/README.txt` existed in Git. Running the former host installer would create untracked files and still violate the shared deployment contract. The fix vendors the exact pinned release files in Git; it does not bypass clean-checkout or tracked-file checks.
+
+When the host has no `.htaccess`, deployment installs the reviewed root template. **An existing `.htaccess` is preserved.** Review it and ensure its `mod_mime` block contains:
+
+```apache
+AddType application/javascript .cjs
 ```
 
-`mediabunny_vendor_ready` should be `true`.
+This is required for the main bundle when `nosniff` is enabled. Check both the root and media-library headers after deployment:
 
-No Python or Node runtime is required on DreamHost.
+```bash
+curl --fail https://vio.basecentral.link/health.php
+curl --head https://vio.basecentral.link/vendor/mediabunny/mediabunny.min.cjs
+```
+
+`mediabunny_vendor_ready` should be `true`, version should be `1.56.2`, and the `.cjs` response should have a JavaScript Content-Type. `--verify` performs the common HTTP check; it does not itself prove conversion or this MIME configuration. See [DREAMHOST.md](DREAMHOST.md).
 
 ## Local development
 
@@ -56,7 +69,7 @@ Open:
 http://127.0.0.1:8080/
 ```
 
-The self-hosted Mediabunny vendor files must exist for conversion to work.
+The self-hosted Mediabunny bundles are included in the repository. Validate them with `php tools/fetch_mediabunny.php --check` before local testing.
 
 ## SD-card workflow
 
@@ -82,3 +95,21 @@ Added the orange kids-camera artwork to the page header, PWA/home-screen icons, 
 ## Shared deployment command (2026-11-01)
 
 See [the current deployment contract](docs/SHARED_DEPLOYMENT.md) and `scripts/deploy-profile.sh`. This supersedes older script flags, SSH-only wrappers and broad deletion instructions below/above; hosting coordinates and app-specific private/release requirements still apply. No deployment is authorized by source changes.
+
+## Vendor maintenance and verification
+
+`tools/mediabunny-lock.json` records the configured version, exact byte lengths and SHA-256 digests from the official release metadata. Both bundles are unmodified. MPL-2.0 text and source/attribution notice are published beside them.
+
+Development-only refresh:
+
+```bash
+php tools/fetch_mediabunny.php --check
+# Only to restore/refresh reviewed pinned assets in the development checkout:
+php tools/fetch_mediabunny.php
+php tools/fetch_mediabunny.php --check
+python3 scripts/test-vendor.py
+```
+
+`--check` is read-only and makes no network requests. Refresh skips valid files; downloads are bounded by the pinned size, checked for SHA-256 and staged before installation. Configured/locked versions must agree. Review and commit the bundles, lock, notices and linked version/cache markers before pushing. Never repair a production checkout by adding untracked downloaded dependencies.
+
+`test-vendor.py` uses temporary local Git repositories and mocked PHP HTTPS streams. It covers complete clean-checkout publication, read-only dry-run, missing/corrupt files, preserved host headers/unrelated files, bounded integrity checking, unsuccessful-download preservation/cleanup and successful refresh. It never contacts production or external services. Full device conversion/player verification remains separate from deployment checks.

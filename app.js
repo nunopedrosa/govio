@@ -89,7 +89,7 @@ function capabilityRow(name, ok, detail) {
 }
 
 function getMb() {
-  if (!window.Mediabunny) throw new Error('Mediabunny is not installed. Run php tools/fetch_mediabunny.php on the server, then reload.');
+  if (!window.Mediabunny) throw new Error('Required media files are missing. Redeploy the complete application, then reload.');
   return window.Mediabunny;
 }
 
@@ -104,7 +104,7 @@ async function checkCapabilities() {
 
   if (!window.Mediabunny) {
     capabilityRow('Mediabunny', false, 'Self-hosted browser media toolkit is missing');
-    setStage('Mediabunny vendor files are missing. Run the server installer.');
+    setStage('Required media files are missing. Deployment must be repaired.');
     return;
   }
   capabilityRow('Mediabunny', true, `Self-hosted v${CONFIG.mediabunny?.version ?? 'unknown'}`);
