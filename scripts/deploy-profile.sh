@@ -1,8 +1,8 @@
 # App-owned publication contract; common engine: BaseCentral deploy 1.0.0.
 APP_ID=govio
 SOURCE_SUBDIR=.
-DEFAULT_DESTINATION="${DEPLOY_SITE:-$HOME/vio.trekm.com}"
-DEPLOY_URL=https://vio.trekm.com
+DEFAULT_DESTINATION="${DEPLOY_SITE:-$HOME/vio.basecentral.link}"
+DEPLOY_URL=https://vio.basecentral.link
 PUBLIC_FILES=$(cat <<'PUBLIC_FILES'
 app.js
 config.php
